@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   MapPin,
@@ -14,6 +15,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  Loader2,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { ScoreCard } from "@/components/ScoreCard";
@@ -23,6 +25,7 @@ import { demoProperty } from "@/data/demoProperty";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { FloodZoneResult } from "@/lib/floodZone";
 
 function UtilityRow({ label, status, risk }: { label: string; status: string; risk: string }) {
   return (
@@ -38,6 +41,16 @@ function UtilityRow({ label, status, risk }: { label: string; status: string; ri
 
 export default function DashboardPage() {
   const p = demoProperty;
+  const [flood, setFlood] = useState<FloodZoneResult | null>(null);
+  const [floodLoading, setFloodLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/flood-zone?address=2600+Dave+Angel+Rd+Burleson+TX+76028")
+      .then((r) => r.json())
+      .then((data: FloodZoneResult) => setFlood(data))
+      .catch(() => {})
+      .finally(() => setFloodLoading(false));
+  }, []);
 
   return (
     <DashboardLayout
@@ -167,33 +180,80 @@ export default function DashboardPage() {
           {/* Flood Risk */}
           <Card className="border-border bg-card">
             <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <Droplets className="h-4 w-4 text-blue-400" />
-                <CardTitle className="text-sm font-semibold">Flood & Environmental Risk</CardTitle>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Droplets className="h-4 w-4 text-blue-400" />
+                  <CardTitle className="text-sm font-semibold">Flood & Environmental Risk</CardTitle>
+                </div>
+                {!floodLoading && flood && !flood.error && (
+                  <Badge variant="secondary" className="text-[10px] gap-1 bg-green-500/10 text-green-400 border border-green-500/20">
+                    <span className="h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
+                    Live
+                  </Badge>
+                )}
               </div>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-3 mb-4 rounded-lg bg-green-500/10 border border-green-500/20 p-3">
-                <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
-                <div>
-                  <p className="text-xs font-semibold text-green-400">FEMA Zone X</p>
-                  <p className="text-[11px] text-muted-foreground">Minimal flood hazard area — favorable designation</p>
+              {floodLoading ? (
+                <div className="flex items-center gap-2 py-4 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-xs">Querying FEMA NFHL…</span>
                 </div>
-              </div>
-              {[
-                { label: "FEMA Zone", value: "Zone X (Demo)" },
-                { label: "100-yr Floodplain", value: "Not detected" },
-                { label: "Drainage Review", value: "Required" },
-                { label: "Risk Level", value: <RiskBadge level="Low to Medium" /> },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
-                  <span className="text-xs text-muted-foreground">{label}</span>
-                  <span className="text-xs font-medium">{value}</span>
-                </div>
-              ))}
-              <p className="text-[11px] text-muted-foreground mt-3 italic">
-                {p.flood.note}
-              </p>
+              ) : flood && !flood.error ? (
+                <>
+                  <div className={`flex items-center gap-3 mb-4 rounded-lg p-3 border ${
+                    flood.riskLevel === "low"
+                      ? "bg-green-500/10 border-green-500/20"
+                      : flood.riskLevel === "high" || flood.riskLevel === "very high"
+                      ? "bg-red-500/10 border-red-500/20"
+                      : "bg-amber-500/10 border-amber-500/20"
+                  }`}>
+                    {flood.riskLevel === "low" ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
+                    ) : (
+                      <AlertTriangle className={`h-4 w-4 shrink-0 ${flood.riskLevel === "high" || flood.riskLevel === "very high" ? "text-red-400" : "text-amber-400"}`} />
+                    )}
+                    <div>
+                      <p className={`text-xs font-semibold ${flood.riskLevel === "low" ? "text-green-400" : flood.riskLevel === "high" || flood.riskLevel === "very high" ? "text-red-400" : "text-amber-400"}`}>
+                        FEMA Zone {flood.zone} — {flood.riskLabel}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{flood.description}</p>
+                    </div>
+                  </div>
+                  {[
+                    { label: "FEMA Zone", value: `Zone ${flood.zone}` },
+                    { label: "100-yr Floodplain", value: flood.isSpecialHazard ? "Yes — SFHA" : "Not detected" },
+                    { label: "FIRM Panel", value: flood.firmPanel },
+                    { label: "Risk Level", value: <RiskBadge level={flood.riskLevel} /> },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
+                      <span className="text-xs text-muted-foreground">{label}</span>
+                      <span className="text-xs font-medium">{value}</span>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 mb-4 rounded-lg bg-green-500/10 border border-green-500/20 p-3">
+                    <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
+                    <div>
+                      <p className="text-xs font-semibold text-green-400">FEMA Zone X</p>
+                      <p className="text-[11px] text-muted-foreground">Minimal flood hazard area — favorable designation</p>
+                    </div>
+                  </div>
+                  {[
+                    { label: "FEMA Zone", value: "Zone X" },
+                    { label: "100-yr Floodplain", value: "Not detected" },
+                    { label: "Drainage Review", value: "Required" },
+                    { label: "Risk Level", value: <RiskBadge level="Low to Medium" /> },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
+                      <span className="text-xs text-muted-foreground">{label}</span>
+                      <span className="text-xs font-medium">{value}</span>
+                    </div>
+                  ))}
+                </>
+              )}
             </CardContent>
           </Card>
 

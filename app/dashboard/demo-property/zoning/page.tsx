@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { Map, CheckCircle2, XCircle, Sparkles, ChevronDown } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Map, CheckCircle2, XCircle, Sparkles, ChevronDown, Droplets, AlertTriangle, ExternalLink, Loader2 } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { ScoreCard } from "@/components/ScoreCard";
 import { AIInsightCard } from "@/components/AIInsightCard";
+import { RiskBadge } from "@/components/RiskBadge";
 import { demoProperty } from "@/data/demoProperty";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import type { FloodZoneResult } from "@/lib/floodZone";
 
 const zoningQA = [
   {
@@ -34,7 +36,17 @@ const zoningQA = [
 
 export default function ZoningPage() {
   const [activeQ, setActiveQ] = useState<number | null>(null);
+  const [flood, setFlood] = useState<FloodZoneResult | null>(null);
+  const [floodLoading, setFloodLoading] = useState(true);
   const p = demoProperty;
+
+  useEffect(() => {
+    fetch("/api/flood-zone?address=2600+Dave+Angel+Rd+Burleson+TX+76028")
+      .then((r) => r.json())
+      .then((data: FloodZoneResult) => setFlood(data))
+      .catch(() => {})
+      .finally(() => setFloodLoading(false));
+  }, []);
 
   return (
     <DashboardLayout
@@ -194,6 +206,88 @@ export default function ZoningPage() {
                 </tbody>
               </table>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Live FEMA Flood Zone */}
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Droplets className="h-4 w-4 text-blue-400" />
+                <CardTitle className="text-sm font-semibold">Live FEMA Flood Zone</CardTitle>
+              </div>
+              {!floodLoading && flood && !flood.error && (
+                <Badge variant="secondary" className="text-[10px] gap-1 bg-green-500/10 text-green-400 border border-green-500/20">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
+                  Live — FEMA NFHL
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {floodLoading ? (
+              <div className="flex items-center gap-3 py-6 justify-center text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-xs">Querying FEMA National Flood Hazard Layer…</span>
+              </div>
+            ) : flood?.error ? (
+              <div className="flex items-center gap-3 rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
+                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-400">FEMA API Unavailable</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {p.flood.note}
+                  </p>
+                </div>
+              </div>
+            ) : flood ? (
+              <div className="space-y-4">
+                <div className={`flex items-center gap-3 rounded-lg p-3 border ${
+                  flood.riskLevel === "low"
+                    ? "bg-green-500/10 border-green-500/20"
+                    : flood.riskLevel === "medium" || flood.riskLevel === "low to medium"
+                    ? "bg-amber-500/10 border-amber-500/20"
+                    : "bg-red-500/10 border-red-500/20"
+                }`}>
+                  {flood.riskLevel === "low" ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
+                  ) : (
+                    <AlertTriangle className={`h-4 w-4 shrink-0 ${flood.riskLevel === "high" || flood.riskLevel === "very high" ? "text-red-400" : "text-amber-400"}`} />
+                  )}
+                  <div>
+                    <p className={`text-xs font-semibold ${flood.riskLevel === "low" ? "text-green-400" : flood.riskLevel === "high" || flood.riskLevel === "very high" ? "text-red-400" : "text-amber-400"}`}>
+                      FEMA Zone {flood.zone} — {flood.riskLabel}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{flood.description}</p>
+                  </div>
+                </div>
+                <div className="space-y-0">
+                  {[
+                    { label: "FEMA Zone", value: `Zone ${flood.zone}` },
+                    { label: "Zone Subtype", value: flood.subtype || "—" },
+                    { label: "Special Flood Hazard Area", value: flood.isSpecialHazard ? "Yes — SFHA" : "No" },
+                    { label: "FIRM Panel", value: flood.firmPanel },
+                    { label: "Risk Level", value: <RiskBadge level={flood.riskLevel} /> },
+                    { label: "Data Source", value: "FEMA NFHL (live)" },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
+                      <span className="text-xs text-muted-foreground">{label}</span>
+                      <span className="text-xs font-medium text-right">{value}</span>
+                    </div>
+                  ))}
+                </div>
+                <a
+                  href={`https://msc.fema.gov/portal/search#searchresultsanchor`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-[11px] text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  View FEMA FIRM Map Service Center
+                </a>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 

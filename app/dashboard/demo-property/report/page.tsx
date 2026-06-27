@@ -66,13 +66,6 @@ export default function ReportPage() {
     day: "numeric",
   });
 
-  const handleExport = () => {
-    toast.info("PDF Export Coming Soon", {
-      description: "PDF export will be available in the next release.",
-      duration: 3000,
-    });
-  };
-
   const handleShare = () => {
     toast.success("Share link copied", {
       description: "A shareable link has been copied to your clipboard.",
@@ -94,15 +87,14 @@ export default function ReportPage() {
       <div className="p-6 space-y-6">
         {/* Action buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-xs border-border bg-transparent hover:bg-secondary"
-            onClick={handleExport}
+          <a
+            href="/api/report-pdf"
+            download="LandOS-Report-2600-Dave-Angel-Rd.pdf"
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-transparent hover:bg-secondary text-xs font-medium transition-colors text-foreground"
           >
             <Download className="h-3.5 w-3.5" />
             Export PDF
-          </Button>
+          </a>
           <Button
             variant="outline"
             size="sm"
