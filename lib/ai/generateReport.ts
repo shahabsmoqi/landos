@@ -6,7 +6,7 @@
 
 import type { PropertyIntelligence } from "@/types/normalized";
 
-const DEFAULT_BASE_URL = "https://api.ollama.com/v1";
+const DEFAULT_BASE_URL = "https://api.ollama.com";
 const DEFAULT_MODEL = "llama3.2";
 
 export interface AiReportSection {
@@ -76,7 +76,7 @@ export async function generateInvestmentReport(
 
   const context = buildContext(intelligence);
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await fetch(`${baseUrl}/api/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -88,8 +88,11 @@ export async function generateInvestmentReport(
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: `Generate an investment memo for:\n\n${context}` },
       ],
-      max_tokens: 2400,
-      temperature: 0.25,
+      stream: false,
+      options: {
+        temperature: 0.25,
+        num_predict: 2400,
+      },
     }),
   });
 
@@ -99,9 +102,11 @@ export async function generateInvestmentReport(
   }
 
   const data = (await res.json()) as {
+    message?: { content?: string };
     choices?: Array<{ message?: { content?: string } }>;
   };
-  const text = data.choices?.[0]?.message?.content ?? "";
+  // Ollama native: data.message.content  |  OpenAI compat fallback: data.choices[0].message.content
+  const text = data.message?.content ?? data.choices?.[0]?.message?.content ?? "";
 
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("AI response did not contain JSON");

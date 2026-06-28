@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { GeocodingResult } from "@/types/geocoding";
-import type { NormalizedFlood, NormalizedDemographics, NormalizedProperty, PropertyIntelligence } from "@/types/normalized";
+import type { NormalizedFlood, NormalizedDemographics, NormalizedProperty, NormalizedListing, PropertyIntelligence } from "@/types/normalized";
 import type { DiscoveredSource } from "@/types/sources";
 
 interface StepState {
@@ -29,6 +29,7 @@ const STEP_DEFS = [
   { label: "Fetching Census demographics", staticDetail: "ACS 5-year tract estimates" },
   { label: "Fetching parcel & zoning data", staticDetail: "Parcelum.io (TX) · Regrid (national)" },
   { label: "Scanning for public GIS sources", staticDetail: "City/county ArcGIS endpoints" },
+  { label: "Fetching nearby listings", staticDetail: "Zillow · MLS via BridgeDataOutput" },
   { label: "Assembling intelligence report", staticDetail: "Normalizing and scoring data" },
   { label: "Opening dashboard", staticDetail: "Loading complete" },
 ];
@@ -199,9 +200,40 @@ export default function AnalyzePage() {
         setStep(4, "failed", "Discovery timed out — no sources found");
       }
 
-      // ── Step 5: Assemble ──
+      // ── Step 5: Listings ──
       setCurrentStep(5);
       setStep(5, "running");
+      let listings: NormalizedListing[] = [];
+      try {
+        if (geocode?.city || (lat && lng)) {
+          const params = new URLSearchParams({
+            city: geocode?.city ?? "",
+            state: geocode?.stateAbbr ?? geocode?.state ?? "",
+            lat: lat ? String(lat) : "",
+            lng: lng ? String(lng) : "",
+          });
+          const result = await fetchWithTimeout<{ listings: NormalizedListing[]; total: number }>(
+            `/api/listings?${params}`,
+            15000
+          );
+          listings = result.listings ?? [];
+          setStep(
+            5,
+            listings.length > 0 ? "done" : "failed",
+            listings.length > 0
+              ? `${listings.length} listing${listings.length !== 1 ? "s" : ""} found`
+              : "No listings found for this area"
+          );
+        } else {
+          setStep(5, "failed", "Skipped — no location data");
+        }
+      } catch {
+        setStep(5, "failed", "Listings service unavailable");
+      }
+
+      // ── Step 6: Assemble ──
+      setCurrentStep(6);
+      setStep(6, "running");
 
       const floodNormalized: NormalizedFlood | null = flood
         ? {
@@ -231,7 +263,7 @@ export default function AnalyzePage() {
         discoveredSources,
         permits: [],
         utilities: [],
-        listings: [],
+        listings,
         confidenceSummary: {
           geocoder: geocode?.success ? "live" : "missing",
           flood: floodNormalized ? "live" : "missing",
@@ -257,13 +289,13 @@ export default function AnalyzePage() {
         // localStorage unavailable
       }
 
-      setStep(5, "done", "Intelligence object assembled");
+      setStep(6, "done", "Intelligence object assembled");
 
-      // ── Step 6: Navigate ──
-      setCurrentStep(6);
-      setStep(6, "running");
+      // ── Step 7: Navigate ──
+      setCurrentStep(7);
+      setStep(7, "running");
       await new Promise((r) => setTimeout(r, 400));
-      setStep(6, "done");
+      setStep(7, "done");
 
       router.push("/dashboard/demo-property?mode=live");
     } catch {
