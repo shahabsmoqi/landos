@@ -9,6 +9,33 @@ import type { PropertyIntelligence } from "@/types/normalized";
 const DEFAULT_BASE_URL = "https://api.ollama.com";
 const DEFAULT_MODEL = "llama3.2";
 
+async function resolveModel(baseUrl: string, apiKey: string, preferred: string): Promise<string> {
+  try {
+    const res = await fetch(`${baseUrl}/api/tags`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) return preferred;
+    const { models } = (await res.json()) as { models?: Array<{ name: string }> };
+    if (!models?.length) return preferred;
+
+    // Use preferred model if installed (exact or with tag suffix like "llama3.2:latest")
+    const exact = models.find(
+      (m) => m.name === preferred || m.name.startsWith(preferred + ":")
+    );
+    if (exact) return exact.name;
+
+    // Best-effort fallback: pick the most capable-looking model available
+    for (const prefix of ["llama3", "llama", "mistral", "gemma", "qwen", "phi", "deepseek"]) {
+      const match = models.find((m) => m.name.startsWith(prefix));
+      if (match) return match.name;
+    }
+
+    return models[0].name;
+  } catch {
+    return preferred;
+  }
+}
+
 export interface AiReportSection {
   id: string;
   title: string;
@@ -72,7 +99,7 @@ export async function generateInvestmentReport(
   if (!apiKey) throw new Error("AI_API_KEY not configured");
 
   const baseUrl = process.env.AI_API_BASE_URL ?? DEFAULT_BASE_URL;
-  const model = process.env.AI_MODEL ?? DEFAULT_MODEL;
+  const model = process.env.AI_MODEL ?? await resolveModel(baseUrl, apiKey, DEFAULT_MODEL);
 
   const context = buildContext(intelligence);
 

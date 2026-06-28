@@ -84,8 +84,27 @@ function FinancialsContent() {
       if (raw) {
         const intel = JSON.parse(raw) as PropertyIntelligence;
         setIntelligence(intel);
-        if (intel.parcel?.acreage) {
-          setInputs((prev) => ({ ...prev, acres: parseFloat(intel.parcel!.acreage!.toFixed(2)) }));
+
+        const updates: Partial<FinancialInputs> = {};
+
+        if (intel.parcel?.acreage != null) {
+          updates.acres = parseFloat(intel.parcel.acreage.toFixed(2));
+        }
+        if (intel.parcel?.marketValue || intel.parcel?.assessedValue) {
+          updates.purchasePrice = intel.parcel.marketValue ?? intel.parcel.assessedValue!;
+        }
+        if (intel.listings?.length) {
+          const prices = intel.listings
+            .filter((l) => l.listPrice && l.listPrice > 0)
+            .map((l) => l.listPrice!)
+            .sort((a, b) => a - b);
+          if (prices.length) {
+            updates.avgLotPrice = prices[Math.floor(prices.length / 2)];
+          }
+        }
+
+        if (Object.keys(updates).length) {
+          setInputs((prev) => ({ ...prev, ...updates }));
         }
       }
     } catch {}
