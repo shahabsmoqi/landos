@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   BarChart,
   Bar,
@@ -17,6 +19,7 @@ import { RiskBadge } from "@/components/RiskBadge";
 import { developmentScenarios } from "@/data/developmentScenarios";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import type { PropertyIntelligence } from "@/types/normalized";
 
 const COLORS = {
   fit: ["#22c55e", "#3b82f6", "#3b82f6", "#f59e0b", "#f59e0b"],
@@ -38,7 +41,23 @@ function FitBar({ score, max = 100 }: { score: number; max?: number }) {
   );
 }
 
-export default function DevelopmentPage() {
+function DevelopmentContent() {
+  const searchParams = useSearchParams();
+  const isLiveMode = searchParams.get("mode") === "live";
+  const [intelligence, setIntelligence] = useState<PropertyIntelligence | null>(null);
+
+  useEffect(() => {
+    if (!isLiveMode) return;
+    try {
+      const raw = localStorage.getItem("landos_property_intelligence");
+      if (raw) setIntelligence(JSON.parse(raw) as PropertyIntelligence);
+    } catch {}
+  }, [isLiveMode]);
+
+  const displayAddress = isLiveMode
+    ? (intelligence?.address ?? "Loading…")
+    : "2600 Dave Angel Rd, Burleson, TX 76028";
+
   const fitChartData = developmentScenarios.map((s) => ({
     name: s.shortName,
     score: s.fitScore,
@@ -55,7 +74,7 @@ export default function DevelopmentPage() {
   return (
     <DashboardLayout
       title="Development Potential"
-      subtitle="2600 Dave Angel Rd, Burleson, TX 76028"
+      subtitle={displayAddress}
       showPropertyActions
     >
       <div className="p-6 space-y-6">
@@ -293,5 +312,13 @@ export default function DevelopmentPage() {
         />
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function DevelopmentPage() {
+  return (
+    <Suspense fallback={null}>
+      <DevelopmentContent />
+    </Suspense>
   );
 }

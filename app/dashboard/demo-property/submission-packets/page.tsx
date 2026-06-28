@@ -1,15 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Send, Info } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PacketSelector } from "@/components/packets/PacketSelector";
 import { PacketDetail } from "@/components/packets/PacketDetail";
 import { submissionPackets } from "@/data/submissionPackets";
 import type { PacketId } from "@/types/packets";
+import type { PropertyIntelligence } from "@/types/normalized";
 
-export default function SubmissionPacketsPage() {
+function SubmissionPacketsContent() {
+  const searchParams = useSearchParams();
+  const isLiveMode = searchParams.get("mode") === "live";
+  const [intelligence, setIntelligence] = useState<PropertyIntelligence | null>(null);
   const [selected, setSelected] = useState<PacketId>("predevelopment-meeting");
+
+  useEffect(() => {
+    if (!isLiveMode) return;
+    try {
+      const raw = localStorage.getItem("landos_property_intelligence");
+      if (raw) setIntelligence(JSON.parse(raw) as PropertyIntelligence);
+    } catch {}
+  }, [isLiveMode]);
+
+  const displayAddress = isLiveMode
+    ? (intelligence?.address ?? "Loading…")
+    : "2600 Dave Angel Rd";
 
   const activePacket = submissionPackets.find((p) => p.id === selected)!;
 
@@ -30,7 +47,7 @@ export default function SubmissionPacketsPage() {
               <div>
                 <p className="text-sm font-semibold text-foreground">Submission Packet Generator</p>
                 <p className="text-xs text-muted-foreground">
-                  {submissionPackets.length} packet types · 2600 Dave Angel Rd
+                  {submissionPackets.length} packet types · {displayAddress}
                 </p>
               </div>
             </div>
@@ -67,5 +84,13 @@ export default function SubmissionPacketsPage() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function SubmissionPacketsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SubmissionPacketsContent />
+    </Suspense>
   );
 }

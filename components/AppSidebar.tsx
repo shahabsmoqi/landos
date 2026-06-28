@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
 import {
   Search,
   LayoutDashboard,
@@ -35,8 +36,27 @@ const navItems = [
   { href: "/settings/data-sources", icon: Database, label: "Data Sources" },
 ];
 
-export function AppSidebar() {
+function AppSidebarInner() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const isLiveMode = searchParams.get("mode") === "live";
+  const [liveAddress, setLiveAddress] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLiveMode) return;
+    try {
+      const raw = localStorage.getItem("landos_property_intelligence");
+      if (raw) {
+        const intel = JSON.parse(raw) as { address?: string };
+        setLiveAddress(intel.address ?? null);
+      }
+    } catch {}
+  }, [isLiveMode]);
+
+  const resolveHref = (href: string) =>
+    isLiveMode && href.startsWith("/dashboard/demo-property")
+      ? `${href}?mode=live`
+      : href;
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-[220px] flex flex-col border-r border-sidebar-border bg-sidebar z-40">
@@ -64,7 +84,7 @@ export function AppSidebar() {
             return (
               <li key={href}>
                 <Link
-                  href={href}
+                  href={resolveHref(href)}
                   className={cn(
                     "group flex items-center justify-between gap-3 rounded-md px-3 py-1.5 text-sm transition-all",
                     active
@@ -89,15 +109,28 @@ export function AppSidebar() {
         </ul>
       </nav>
 
-      {/* Demo badge */}
+      {/* Mode badge */}
       <div className="p-3 border-t border-sidebar-border">
-        <div className="rounded-md bg-primary/10 border border-primary/20 p-2.5">
-          <p className="text-xs font-medium text-primary mb-0.5">Demo Mode</p>
-          <p className="text-[10px] text-muted-foreground leading-tight">
-            2600 Dave Angel Rd, Burleson TX
+        <div className={cn(
+          "rounded-md border p-2.5",
+          isLiveMode ? "bg-green-500/10 border-green-500/20" : "bg-primary/10 border-primary/20"
+        )}>
+          <p className={cn("text-xs font-medium mb-0.5", isLiveMode ? "text-green-400" : "text-primary")}>
+            {isLiveMode ? "Live Mode" : "Demo Mode"}
+          </p>
+          <p className="text-[10px] text-muted-foreground leading-tight truncate">
+            {isLiveMode ? (liveAddress ?? "Loading…") : "2600 Dave Angel Rd, Burleson TX"}
           </p>
         </div>
       </div>
     </aside>
+  );
+}
+
+export function AppSidebar() {
+  return (
+    <Suspense fallback={null}>
+      <AppSidebarInner />
+    </Suspense>
   );
 }

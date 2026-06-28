@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import type { PropertyIntelligence } from "@/types/normalized";
 import {
   LineChart,
   Line,
@@ -59,7 +61,10 @@ function calcModel(inputs: FinancialInputs) {
   return { totalCost, grossRevenue, profit, margin, costPerLot, revenuePerAcre, breakEvenLotPrice, contingency };
 }
 
-export default function FinancialsPage() {
+function FinancialsContent() {
+  const searchParams = useSearchParams();
+  const isLiveMode = searchParams.get("mode") === "live";
+  const [intelligence, setIntelligence] = useState<PropertyIntelligence | null>(null);
   const [inputs, setInputs] = useState<FinancialInputs>({
     purchasePrice: 934900,
     acres: 14.07,
@@ -71,6 +76,24 @@ export default function FinancialsPage() {
     closingCosts: 45000,
     contingencyPct: 10,
   });
+
+  useEffect(() => {
+    if (!isLiveMode) return;
+    try {
+      const raw = localStorage.getItem("landos_property_intelligence");
+      if (raw) {
+        const intel = JSON.parse(raw) as PropertyIntelligence;
+        setIntelligence(intel);
+        if (intel.parcel?.acreage) {
+          setInputs((prev) => ({ ...prev, acres: parseFloat(intel.parcel!.acreage!.toFixed(2)) }));
+        }
+      }
+    } catch {}
+  }, [isLiveMode]);
+
+  const displayAddress = isLiveMode
+    ? (intelligence?.address ?? "Loading…")
+    : "2600 Dave Angel Rd, Burleson, TX 76028";
 
   const model = useMemo(() => calcModel(inputs), [inputs]);
 
@@ -95,7 +118,7 @@ export default function FinancialsPage() {
   return (
     <DashboardLayout
       title="Financial Model"
-      subtitle="2600 Dave Angel Rd, Burleson, TX 76028"
+      subtitle={displayAddress}
       showPropertyActions
     >
       <div className="p-6 space-y-6">
@@ -329,5 +352,13 @@ export default function FinancialsPage() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function FinancialsPage() {
+  return (
+    <Suspense fallback={null}>
+      <FinancialsContent />
+    </Suspense>
   );
 }

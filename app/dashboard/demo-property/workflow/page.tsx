@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   X,
   Clock,
@@ -16,6 +17,7 @@ import {
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { workflowColumns, workflowTasks, WorkflowTask, TaskStatus } from "@/data/workflowTasks";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { PropertyIntelligence } from "@/types/normalized";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,9 +74,24 @@ const columnHeaderColor: Record<string, string> = {
   execution: "text-teal-400",
 };
 
-export default function WorkflowPage() {
+function WorkflowContent() {
+  const searchParams = useSearchParams();
+  const isLiveMode = searchParams.get("mode") === "live";
+  const [intelligence, setIntelligence] = useState<PropertyIntelligence | null>(null);
   const [tasks, setTasks] = useState(workflowTasks);
   const [selectedTask, setSelectedTask] = useState<WorkflowTask | null>(null);
+
+  useEffect(() => {
+    if (!isLiveMode) return;
+    try {
+      const raw = localStorage.getItem("landos_property_intelligence");
+      if (raw) setIntelligence(JSON.parse(raw) as PropertyIntelligence);
+    } catch {}
+  }, [isLiveMode]);
+
+  const displayAddress = isLiveMode
+    ? (intelligence?.address ?? "Loading…")
+    : "2600 Dave Angel Rd, Burleson, TX 76028";
 
   const getColumnTasks = (columnId: string) => tasks.filter((t) => t.column === columnId);
 
@@ -89,7 +106,7 @@ export default function WorkflowPage() {
   return (
     <DashboardLayout
       title="Approval Workflow"
-      subtitle="2600 Dave Angel Rd, Burleson, TX 76028"
+      subtitle={displayAddress}
       showPropertyActions
     >
       <div className="p-6 space-y-4">
@@ -298,5 +315,13 @@ export default function WorkflowPage() {
         </div>
       )}
     </DashboardLayout>
+  );
+}
+
+export default function WorkflowPage() {
+  return (
+    <Suspense fallback={null}>
+      <WorkflowContent />
+    </Suspense>
   );
 }

@@ -1,8 +1,37 @@
+"use client";
+
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { BuildabilityWizard } from "@/components/buildability/BuildabilityWizard";
 import { Wrench, AlertTriangle } from "lucide-react";
+import type { PropertyIntelligence } from "@/types/normalized";
 
-export default function BuildabilityPage() {
+function BuildabilityContent() {
+  const searchParams = useSearchParams();
+  const isLiveMode = searchParams.get("mode") === "live";
+  const [intelligence, setIntelligence] = useState<PropertyIntelligence | null>(null);
+
+  useEffect(() => {
+    if (!isLiveMode) return;
+    try {
+      const raw = localStorage.getItem("landos_property_intelligence");
+      if (raw) setIntelligence(JSON.parse(raw) as PropertyIntelligence);
+    } catch {}
+  }, [isLiveMode]);
+
+  const displayAddress = isLiveMode
+    ? (intelligence?.address ?? "Loading…")
+    : "2600 Dave Angel Rd";
+
+  const acreage = isLiveMode
+    ? (intelligence?.parcel?.acreage?.toFixed(2) ?? "—")
+    : "14.07";
+
+  const county = isLiveMode
+    ? (intelligence?.geocode?.countyName ?? intelligence?.geocode?.county ?? "Unknown County")
+    : "Johnson Co.";
+
   return (
     <DashboardLayout
       title="Buildability Wizard"
@@ -27,8 +56,8 @@ export default function BuildabilityPage() {
             </div>
             <div className="shrink-0 rounded-lg bg-secondary/50 border border-border px-4 py-3 text-center min-w-[140px]">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Analyzing</p>
-              <p className="text-xs font-semibold text-foreground leading-snug">2600 Dave Angel Rd</p>
-              <p className="text-[11px] text-muted-foreground">14.07 ac · Johnson Co.</p>
+              <p className="text-xs font-semibold text-foreground leading-snug truncate max-w-[160px]">{displayAddress}</p>
+              <p className="text-[11px] text-muted-foreground">{acreage} ac · {county}</p>
             </div>
           </div>
         </div>
@@ -46,5 +75,13 @@ export default function BuildabilityPage() {
         <BuildabilityWizard />
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function BuildabilityPage() {
+  return (
+    <Suspense fallback={null}>
+      <BuildabilityContent />
+    </Suspense>
   );
 }

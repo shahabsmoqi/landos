@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import type { PropertyIntelligence } from "@/types/normalized";
 import { FakeGISMap } from "@/components/map/FakeGISMap";
 import { MapLayerToggle } from "@/components/map/MapLayerToggle";
 import { MapLegend } from "@/components/map/MapLegend";
@@ -15,8 +17,23 @@ function getDefaultLayers(): Set<LayerId> {
   );
 }
 
-export default function MapPage() {
+function MapContent() {
+  const searchParams = useSearchParams();
+  const isLiveMode = searchParams.get("mode") === "live";
+  const [intelligence, setIntelligence] = useState<PropertyIntelligence | null>(null);
   const [activeLayers, setActiveLayers] = useState<Set<LayerId>>(getDefaultLayers);
+
+  useEffect(() => {
+    if (!isLiveMode) return;
+    try {
+      const raw = localStorage.getItem("landos_property_intelligence");
+      if (raw) setIntelligence(JSON.parse(raw) as PropertyIntelligence);
+    } catch {}
+  }, [isLiveMode]);
+
+  const displayAddress = isLiveMode
+    ? (intelligence?.address ?? "Loading…")
+    : "2600 Dave Angel Rd";
 
   const toggleLayer = (id: LayerId) => {
     setActiveLayers((prev) => {
@@ -59,7 +76,7 @@ export default function MapPage() {
               <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-0.5">
                 Intelligence Layer
               </p>
-              <p className="text-xs text-foreground font-medium">2600 Dave Angel Rd</p>
+              <p className="text-xs text-foreground font-medium truncate">{displayAddress}</p>
             </div>
             <MapMetricPanel
               cards={intelligenceCards}
@@ -89,5 +106,13 @@ export default function MapPage() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function MapPage() {
+  return (
+    <Suspense fallback={null}>
+      <MapContent />
+    </Suspense>
   );
 }

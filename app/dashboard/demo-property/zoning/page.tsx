@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Map, CheckCircle2, XCircle, Sparkles, ChevronDown, Droplets, AlertTriangle, ExternalLink, Loader2 } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { ScoreCard } from "@/components/ScoreCard";
@@ -10,6 +11,7 @@ import { demoProperty } from "@/data/demoProperty";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { FloodZoneResult } from "@/lib/floodZone";
+import type { PropertyIntelligence } from "@/types/normalized";
 
 const zoningQA = [
   {
@@ -34,24 +36,44 @@ const zoningQA = [
   },
 ];
 
-export default function ZoningPage() {
+function ZoningContent() {
+  const searchParams = useSearchParams();
+  const isLiveMode = searchParams.get("mode") === "live";
+  const [intelligence, setIntelligence] = useState<PropertyIntelligence | null>(null);
   const [activeQ, setActiveQ] = useState<number | null>(null);
   const [flood, setFlood] = useState<FloodZoneResult | null>(null);
-  const [floodLoading, setFloodLoading] = useState(true);
+  const [floodLoading, setFloodLoading] = useState(!isLiveMode);
   const p = demoProperty;
 
   useEffect(() => {
+    if (!isLiveMode) return;
+    try {
+      const raw = localStorage.getItem("landos_property_intelligence");
+      if (raw) setIntelligence(JSON.parse(raw) as PropertyIntelligence);
+    } catch {}
+  }, [isLiveMode]);
+
+  // Only fetch FEMA directly in demo mode — in live mode, use intelligence.flood
+  useEffect(() => {
+    if (isLiveMode) return;
+    setFloodLoading(true);
     fetch("/api/flood-zone?address=2600+Dave+Angel+Rd+Burleson+TX+76028")
       .then((r) => r.json())
       .then((data: FloodZoneResult) => setFlood(data))
       .catch(() => {})
       .finally(() => setFloodLoading(false));
-  }, []);
+  }, [isLiveMode]);
+
+  const displayAddress = isLiveMode
+    ? (intelligence?.address ?? "Loading…")
+    : "2600 Dave Angel Rd, Burleson, TX 76028";
+
+  const liveFlood = isLiveMode ? intelligence?.flood ?? null : null;
 
   return (
     <DashboardLayout
       title="Zoning & Entitlements"
-      subtitle="2600 Dave Angel Rd, Burleson, TX 76028"
+      subtitle={displayAddress}
       showPropertyActions
     >
       <div className="p-6 space-y-6">
@@ -66,7 +88,7 @@ export default function ZoningPage() {
               Current jurisdiction, zoning classification, entitlement requirements, and rezoning probability assessment.
             </p>
           </div>
-          <ScoreCard score={p.zoning.rezoningScore} label="Rezoning Probability" size="sm" />
+          {!isLiveMode && <ScoreCard score={p.zoning.rezoningScore} label="Rezoning Probability" size="sm" />}
         </div>
 
         {/* Jurisdiction grid */}
@@ -76,20 +98,39 @@ export default function ZoningPage() {
               <CardTitle className="text-sm font-semibold">Current Jurisdiction</CardTitle>
             </CardHeader>
             <CardContent>
-              {[
-                { label: "City", value: "Burleson, TX (ETJ — unconfirmed)" },
-                { label: "County", value: "Johnson County" },
-                { label: "ETJ Status", value: "Needs verification" },
-                { label: "School District", value: "Mansfield ISD (placeholder)" },
-                { label: "Fire District", value: "Burleson Fire (placeholder)" },
-                { label: "Water District", value: "TBD — verification required" },
-                { label: "Platting Authority", value: "County or Burleson ETJ" },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
-                  <span className="text-xs text-muted-foreground">{label}</span>
-                  <span className="text-xs font-medium text-right max-w-[55%]">{value}</span>
+              {isLiveMode ? (
+                <div className="space-y-0">
+                  {[
+                    { label: "State", value: intelligence?.geocode?.stateAbbr ?? "—" },
+                    { label: "County", value: intelligence?.geocode?.countyName ?? intelligence?.geocode?.county ?? "—" },
+                    { label: "City", value: intelligence?.geocode?.city ?? "—" },
+                    { label: "ZIP Code", value: intelligence?.geocode?.zip ?? "—" },
+                    { label: "Census Tract", value: intelligence?.geocode?.tract ?? "—" },
+                    { label: "ETJ Status", value: "Needs local verification" },
+                    { label: "Platting Authority", value: "Contact county planning" },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
+                      <span className="text-xs text-muted-foreground">{label}</span>
+                      <span className="text-xs font-medium text-right max-w-[55%]">{value}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                [
+                  { label: "City", value: "Burleson, TX (ETJ — unconfirmed)" },
+                  { label: "County", value: "Johnson County" },
+                  { label: "ETJ Status", value: "Needs verification" },
+                  { label: "School District", value: "Mansfield ISD (placeholder)" },
+                  { label: "Fire District", value: "Burleson Fire (placeholder)" },
+                  { label: "Water District", value: "TBD — verification required" },
+                  { label: "Platting Authority", value: "County or Burleson ETJ" },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
+                    <span className="text-xs text-muted-foreground">{label}</span>
+                    <span className="text-xs font-medium text-right max-w-[55%]">{value}</span>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
 
@@ -98,80 +139,96 @@ export default function ZoningPage() {
               <CardTitle className="text-sm font-semibold">Zoning Classification</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="rounded-lg bg-secondary/50 p-4 mb-4">
-                <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">Current Zoning</p>
-                <p className="text-lg font-bold text-foreground">{p.zoning.currentZoning}</p>
-              </div>
-              {[
-                { label: "City Limits", value: p.zoning.cityLimits },
-                { label: "ETJ", value: p.zoning.etj },
-                { label: "Rezoning Needed", value: p.zoning.rezoningNeeded },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
-                  <span className="text-xs text-muted-foreground">{label}</span>
-                  <span className="text-xs font-medium text-right max-w-[55%]">{value}</span>
+              {isLiveMode ? (
+                <div className="flex flex-col items-center justify-center py-8 gap-3">
+                  <AlertTriangle className="h-6 w-6 text-muted-foreground/40" />
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-foreground mb-1">Zoning data not available</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed max-w-xs">
+                      Zoning classification requires a municipal or county GIS API. Contact the local planning department for current zoning.
+                    </p>
+                  </div>
                 </div>
-              ))}
-              <div className="mt-3">
-                <p className="text-[11px] text-muted-foreground mb-2">Allowed Uses</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {p.zoning.allowedUses.map((use) => (
-                    <Badge key={use} variant="secondary" className="text-[11px] bg-secondary text-muted-foreground">
-                      {use}
-                    </Badge>
+              ) : (
+                <>
+                  <div className="rounded-lg bg-secondary/50 p-4 mb-4">
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">Current Zoning</p>
+                    <p className="text-lg font-bold text-foreground">{p.zoning.currentZoning}</p>
+                  </div>
+                  {[
+                    { label: "City Limits", value: p.zoning.cityLimits },
+                    { label: "ETJ", value: p.zoning.etj },
+                    { label: "Rezoning Needed", value: p.zoning.rezoningNeeded },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
+                      <span className="text-xs text-muted-foreground">{label}</span>
+                      <span className="text-xs font-medium text-right max-w-[55%]">{value}</span>
+                    </div>
                   ))}
-                </div>
-              </div>
+                  <div className="mt-3">
+                    <p className="text-[11px] text-muted-foreground mb-2">Allowed Uses</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {p.zoning.allowedUses.map((use) => (
+                        <Badge key={use} variant="secondary" className="text-[11px] bg-secondary text-muted-foreground">
+                          {use}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Rezoning probability */}
-        <Card className="border-border bg-card">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold">Rezoning Probability Analysis</CardTitle>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-bold text-blue-400">{p.zoning.rezoningScore}</span>
-                <span className="text-sm text-muted-foreground">/100</span>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid md:grid-cols-2 gap-6">
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <CheckCircle2 className="h-4 w-4 text-green-400" />
-                  <h4 className="text-xs font-semibold text-green-400 uppercase tracking-wide">Positive Factors</h4>
+        {/* Rezoning probability — demo only */}
+        {!isLiveMode && (
+          <Card className="border-border bg-card">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Rezoning Probability Analysis</CardTitle>
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl font-bold text-blue-400">{p.zoning.rezoningScore}</span>
+                  <span className="text-sm text-muted-foreground">/100</span>
                 </div>
-                <ul className="space-y-2">
-                  {p.zoning.rezoningFactors.positive.map((f) => (
-                    <li key={f} className="flex items-start gap-2.5 text-xs text-muted-foreground">
-                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-green-400 shrink-0" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
               </div>
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <XCircle className="h-4 w-4 text-red-400" />
-                  <h4 className="text-xs font-semibold text-red-400 uppercase tracking-wide">Risk Factors</h4>
+            </CardHeader>
+            <CardContent>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <CheckCircle2 className="h-4 w-4 text-green-400" />
+                    <h4 className="text-xs font-semibold text-green-400 uppercase tracking-wide">Positive Factors</h4>
+                  </div>
+                  <ul className="space-y-2">
+                    {p.zoning.rezoningFactors.positive.map((f) => (
+                      <li key={f} className="flex items-start gap-2.5 text-xs text-muted-foreground">
+                        <div className="mt-1 h-1.5 w-1.5 rounded-full bg-green-400 shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <ul className="space-y-2">
-                  {p.zoning.rezoningFactors.negative.map((f) => (
-                    <li key={f} className="flex items-start gap-2.5 text-xs text-muted-foreground">
-                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <XCircle className="h-4 w-4 text-red-400" />
+                    <h4 className="text-xs font-semibold text-red-400 uppercase tracking-wide">Risk Factors</h4>
+                  </div>
+                  <ul className="space-y-2">
+                    {p.zoning.rezoningFactors.negative.map((f) => (
+                      <li key={f} className="flex items-start gap-2.5 text-xs text-muted-foreground">
+                        <div className="mt-1 h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
-        {/* Entitlement Requirements */}
+        {/* Entitlement Requirements — always shown */}
         <Card className="border-border bg-card">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold">Entitlement Requirements by Scenario</CardTitle>
@@ -209,15 +266,21 @@ export default function ZoningPage() {
           </CardContent>
         </Card>
 
-        {/* Live FEMA Flood Zone */}
+        {/* Flood Zone */}
         <Card className="border-border bg-card">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Droplets className="h-4 w-4 text-blue-400" />
-                <CardTitle className="text-sm font-semibold">Live FEMA Flood Zone</CardTitle>
+                <CardTitle className="text-sm font-semibold">FEMA Flood Zone</CardTitle>
               </div>
-              {!floodLoading && flood && !flood.error && (
+              {isLiveMode && liveFlood && (
+                <Badge variant="secondary" className="text-[10px] gap-1 bg-green-500/10 text-green-400 border border-green-500/20">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
+                  Live — FEMA NFHL
+                </Badge>
+              )}
+              {!isLiveMode && !floodLoading && flood && !flood.error && (
                 <Badge variant="secondary" className="text-[10px] gap-1 bg-green-500/10 text-green-400 border border-green-500/20">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
                   Live — FEMA NFHL
@@ -226,7 +289,51 @@ export default function ZoningPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {floodLoading ? (
+            {isLiveMode ? (
+              liveFlood ? (
+                <div className="space-y-4">
+                  <div className={`flex items-center gap-3 rounded-lg p-3 border ${
+                    liveFlood.riskLevel === "low"
+                      ? "bg-green-500/10 border-green-500/20"
+                      : liveFlood.riskLevel === "medium" || liveFlood.riskLevel === "low to medium"
+                      ? "bg-amber-500/10 border-amber-500/20"
+                      : "bg-red-500/10 border-red-500/20"
+                  }`}>
+                    {liveFlood.riskLevel === "low" ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
+                    ) : (
+                      <AlertTriangle className={`h-4 w-4 shrink-0 ${liveFlood.riskLevel === "high" || liveFlood.riskLevel === "very high" ? "text-red-400" : "text-amber-400"}`} />
+                    )}
+                    <div>
+                      <p className={`text-xs font-semibold ${liveFlood.riskLevel === "low" ? "text-green-400" : liveFlood.riskLevel === "high" || liveFlood.riskLevel === "very high" ? "text-red-400" : "text-amber-400"}`}>
+                        FEMA Zone {liveFlood.zoneCode} — {liveFlood.riskLabel}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{liveFlood.description}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-0">
+                    {[
+                      { label: "FEMA Zone", value: `Zone ${liveFlood.zoneCode}` },
+                      { label: "Zone Subtype", value: liveFlood.zoneSubtype || "—" },
+                      { label: "Special Flood Hazard Area", value: liveFlood.sfha ? "Yes — SFHA" : "No" },
+                      { label: "FIRM Panel", value: liveFlood.firmPanel },
+                      { label: "Risk Level", value: <RiskBadge level={liveFlood.riskLevel} /> },
+                      { label: "Data Source", value: "FEMA NFHL (live)" },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
+                        <span className="text-xs text-muted-foreground">{label}</span>
+                        <span className="text-xs font-medium text-right">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 py-6 justify-center text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-xs">Loading flood data…</span>
+                </div>
+              )
+            ) : floodLoading ? (
               <div className="flex items-center gap-3 py-6 justify-center text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="text-xs">Querying FEMA National Flood Hazard Layer…</span>
@@ -236,9 +343,7 @@ export default function ZoningPage() {
                 <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
                 <div>
                   <p className="text-xs font-semibold text-amber-400">FEMA API Unavailable</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {p.flood.note}
-                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{p.flood.note}</p>
                 </div>
               </div>
             ) : flood ? (
@@ -278,7 +383,7 @@ export default function ZoningPage() {
                   ))}
                 </div>
                 <a
-                  href={`https://msc.fema.gov/portal/search#searchresultsanchor`}
+                  href="https://msc.fema.gov/portal/search#searchresultsanchor"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 text-[11px] text-primary hover:underline"
@@ -301,7 +406,9 @@ export default function ZoningPage() {
               <CardTitle className="text-sm font-semibold text-primary">AI Zoning Assistant</CardTitle>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Click a question to see the AI-generated analysis for this property.
+              {isLiveMode
+                ? "AI-powered zoning analysis requires an AI report API key. These example questions illustrate the kind of analysis available."
+                : "Click a question to see the AI-generated analysis for this property."}
             </p>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -326,7 +433,9 @@ export default function ZoningPage() {
                     <div className="border-t border-border/40 pt-3">
                       <div className="flex items-center gap-2 mb-2">
                         <Sparkles className="h-3 w-3 text-primary" />
-                        <span className="text-[10px] text-primary font-semibold uppercase tracking-wide">AI Analysis</span>
+                        <span className="text-[10px] text-primary font-semibold uppercase tracking-wide">
+                          {isLiveMode ? "Demo Analysis" : "AI Analysis"}
+                        </span>
                       </div>
                       <p className="text-xs text-muted-foreground leading-relaxed">{a}</p>
                     </div>
@@ -338,11 +447,21 @@ export default function ZoningPage() {
         </Card>
 
         {/* AI Summary */}
-        <AIInsightCard
-          title="Zoning & Entitlement Summary"
-          content={`This parcel's most favorable near-term entitlement path is an estate lot minor subdivision (5–8 lots) under county jurisdiction, which would likely not require formal rezoning and could reach a recorded plat in 9–15 months. The Rezoning Probability Score of ${p.zoning.rezoningScore}/100 reflects genuine market support for residential development but significant process uncertainty given the ETJ ambiguity and utility unknowns. Any higher-density scenario should begin with a paid pre-development consultation with a local land use attorney and a pre-development meeting with the city/county — both of which are low-cost, high-value steps that will dramatically reduce project uncertainty before committing engineering dollars.`}
-        />
+        {!isLiveMode && (
+          <AIInsightCard
+            title="Zoning & Entitlement Summary"
+            content={`This parcel's most favorable near-term entitlement path is an estate lot minor subdivision (5–8 lots) under county jurisdiction, which would likely not require formal rezoning and could reach a recorded plat in 9–15 months. The Rezoning Probability Score of ${p.zoning.rezoningScore}/100 reflects genuine market support for residential development but significant process uncertainty given the ETJ ambiguity and utility unknowns. Any higher-density scenario should begin with a paid pre-development consultation with a local land use attorney and a pre-development meeting with the city/county — both of which are low-cost, high-value steps that will dramatically reduce project uncertainty before committing engineering dollars.`}
+          />
+        )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function ZoningPage() {
+  return (
+    <Suspense fallback={null}>
+      <ZoningContent />
+    </Suspense>
   );
 }

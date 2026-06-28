@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   FileText,
   Download,
@@ -21,6 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import Link from "next/link";
+import type { PropertyIntelligence } from "@/types/normalized";
 
 function ReportSectionBlock({
   title,
@@ -58,13 +60,43 @@ function ReportSectionBlock({
   );
 }
 
-export default function ReportPage() {
+function ReportContent() {
+  const searchParams = useSearchParams();
+  const isLiveMode = searchParams.get("mode") === "live";
+  const [intelligence, setIntelligence] = useState<PropertyIntelligence | null>(null);
   const p = demoProperty;
+
+  useEffect(() => {
+    if (!isLiveMode) return;
+    try {
+      const raw = localStorage.getItem("landos_property_intelligence");
+      if (raw) setIntelligence(JSON.parse(raw) as PropertyIntelligence);
+    } catch {}
+  }, [isLiveMode]);
+
   const date = new Date().toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
   });
+
+  const displayAddress = isLiveMode
+    ? (intelligence?.address ?? "Loading…")
+    : p.fullAddress;
+
+  const countyLabel = isLiveMode
+    ? (intelligence?.geocode?.countyName
+        ? `${intelligence.geocode.countyName}${intelligence.geocode.stateAbbr ? `, ${intelligence.geocode.stateAbbr}` : ""}`
+        : "—")
+    : "Johnson County, TX";
+
+  const acresLabel = isLiveMode
+    ? (intelligence?.parcel?.acreage != null ? `${intelligence.parcel.acreage.toFixed(2)} Acres` : "— Acres")
+    : "14.07 Acres";
+
+  const floodLabel = isLiveMode
+    ? (intelligence?.flood ? `${intelligence.flood.riskLabel} (Zone ${intelligence.flood.zoneCode})` : "—")
+    : "Low to Medium";
 
   const handleShare = () => {
     toast.success("Share link copied", {
@@ -74,14 +106,14 @@ export default function ReportPage() {
 
   const handleSave = () => {
     toast.success("Deal saved", {
-      description: "2600 Dave Angel Rd has been added to your Saved Deals.",
+      description: `${displayAddress} has been added to your Saved Deals.`,
     });
   };
 
   return (
     <DashboardLayout
       title="AI Intelligence Report"
-      subtitle="2600 Dave Angel Rd, Burleson, TX 76028"
+      subtitle={displayAddress}
       showPropertyActions
     >
       <div className="p-6 space-y-6">
@@ -89,7 +121,7 @@ export default function ReportPage() {
         <div className="flex flex-wrap items-center gap-2">
           <a
             href="/api/report-pdf"
-            download="LandOS-Report-2600-Dave-Angel-Rd.pdf"
+            download="LandOS-Report.pdf"
             className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-transparent hover:bg-secondary text-xs font-medium transition-colors text-foreground"
           >
             <Download className="h-3.5 w-3.5" />
@@ -119,7 +151,7 @@ export default function ReportPage() {
             size="sm"
             className="h-8 gap-1.5 text-xs border-border bg-transparent hover:bg-secondary"
           >
-            <Link href="/dashboard/demo-property/workflow">
+            <Link href={isLiveMode ? "/dashboard/demo-property/workflow?mode=live" : "/dashboard/demo-property/workflow"}>
               <GitBranch className="h-3.5 w-3.5" />
               Start Workflow
             </Link>
@@ -147,15 +179,15 @@ export default function ReportPage() {
                 LandOS Development Intelligence Report
               </span>
             </div>
-            <h1 className="text-xl font-bold text-foreground mb-1">{p.fullAddress}</h1>
+            <h1 className="text-xl font-bold text-foreground mb-1">{displayAddress}</h1>
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span>Report Date: {date}</span>
               <span>·</span>
-              <span>Johnson County, TX</span>
+              <span>{countyLabel}</span>
               <span>·</span>
-              <span>14.07 Acres</span>
+              <span>{acresLabel}</span>
               <span>·</span>
-              <span>Demo Report</span>
+              <span>{isLiveMode ? "Live Analysis" : "Demo Report"}</span>
             </div>
           </div>
 
@@ -167,54 +199,78 @@ export default function ReportPage() {
                   Key Metrics Summary
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {[
-                    { label: "Opportunity Score", value: "87 / 100" },
-                    { label: "Rezoning Probability", value: "72 / 100" },
-                    { label: "Flood Risk", value: "Low to Medium" },
-                    { label: "Utility Risk", value: "Medium" },
-                    { label: "Recommended Scenario", value: "Estate Lot Sub." },
-                    { label: "Est. Timeline", value: "9–15 months" },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="rounded-lg bg-secondary/50 p-3">
-                      <p className="text-[10px] text-muted-foreground mb-1">{label}</p>
-                      <p className="text-sm font-semibold">{value}</p>
-                    </div>
-                  ))}
+                  {isLiveMode ? (
+                    <>
+                      {[
+                        { label: "Flood Risk", value: floodLabel },
+                        { label: "Parcel Size", value: acresLabel },
+                        { label: "Market Value", value: intelligence?.parcel?.marketValue ? `$${intelligence.parcel.marketValue.toLocaleString()}` : "—" },
+                        { label: "Assessed Value", value: intelligence?.parcel?.assessedValue ? `$${intelligence.parcel.assessedValue.toLocaleString()}` : "—" },
+                        { label: "Year Built", value: intelligence?.parcel?.yearBuilt ? String(intelligence.parcel.yearBuilt) : "—" },
+                        { label: "Property Use", value: intelligence?.parcel?.propertyUse ?? "—" },
+                      ].map(({ label, value }) => (
+                        <div key={label} className="rounded-lg bg-secondary/50 p-3">
+                          <p className="text-[10px] text-muted-foreground mb-1">{label}</p>
+                          <p className="text-sm font-semibold">{value}</p>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      {[
+                        { label: "Opportunity Score", value: "87 / 100" },
+                        { label: "Rezoning Probability", value: "72 / 100" },
+                        { label: "Flood Risk", value: "Low to Medium" },
+                        { label: "Utility Risk", value: "Medium" },
+                        { label: "Recommended Scenario", value: "Estate Lot Sub." },
+                        { label: "Est. Timeline", value: "9–15 months" },
+                      ].map(({ label, value }) => (
+                        <div key={label} className="rounded-lg bg-secondary/50 p-3">
+                          <p className="text-[10px] text-muted-foreground mb-1">{label}</p>
+                          <p className="text-sm font-semibold">{value}</p>
+                        </div>
+                      ))}
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="shrink-0 flex gap-6">
-                <ScoreCard score={87} label="Opportunity" size="sm" />
-                <ScoreCard score={72} label="Rezoning" size="sm" />
-              </div>
+              {!isLiveMode && (
+                <div className="shrink-0 flex gap-6">
+                  <ScoreCard score={87} label="Opportunity" size="sm" />
+                  <ScoreCard score={72} label="Rezoning" size="sm" />
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Risk dashboard */}
-        <Card className="border-border bg-card">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold">Risk Assessment Summary</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                { category: "Zoning / Entitlement", level: "Medium" },
-                { category: "Flood / Environmental", level: "Low to Medium" },
-                { category: "Utility Availability", level: "Medium" },
-                { category: "Market Absorption", level: "Low" },
-                { category: "Infrastructure Cost", level: "Medium" },
-                { category: "Jurisdiction Clarity", level: "High" },
-                { category: "Timeline Certainty", level: "Medium" },
-                { category: "Capital Structure", level: "Low" },
-              ].map(({ category, level }) => (
-                <div key={category} className="rounded-lg bg-secondary/30 p-3">
-                  <p className="text-[10px] text-muted-foreground mb-2">{category}</p>
-                  <RiskBadge level={level} size="md" />
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        {/* Risk dashboard — demo only (no scoring available in live mode yet) */}
+        {!isLiveMode && (
+          <Card className="border-border bg-card">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">Risk Assessment Summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { category: "Zoning / Entitlement", level: "Medium" },
+                  { category: "Flood / Environmental", level: "Low to Medium" },
+                  { category: "Utility Availability", level: "Medium" },
+                  { category: "Market Absorption", level: "Low" },
+                  { category: "Infrastructure Cost", level: "Medium" },
+                  { category: "Jurisdiction Clarity", level: "High" },
+                  { category: "Timeline Certainty", level: "Medium" },
+                  { category: "Capital Structure", level: "Low" },
+                ].map(({ category, level }) => (
+                  <div key={category} className="rounded-lg bg-secondary/30 p-3">
+                    <p className="text-[10px] text-muted-foreground mb-2">{category}</p>
+                    <RiskBadge level={level} size="md" />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Full report sections */}
         <Card className="border-border bg-card">
@@ -224,7 +280,9 @@ export default function ReportPage() {
               <CardTitle className="text-sm font-semibold">Full Investment Memo</CardTitle>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              AI-generated analyst narrative. Click any section to expand.
+              {isLiveMode
+                ? "AI-generated analysis requires an Anthropic API key. The sections below are illustrative demo content."
+                : "AI-generated analyst narrative. Click any section to expand."}
             </p>
           </CardHeader>
           <CardContent className="pt-2">
@@ -242,13 +300,21 @@ export default function ReportPage() {
         {/* Footer disclaimer */}
         <div className="rounded-lg border border-border bg-secondary/20 p-4">
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            <strong className="text-foreground">Disclaimer:</strong> This report is generated from demo/simulated data for
-            prototype demonstration purposes only. It does not constitute legal, financial, engineering, or real estate
-            advice. All data should be independently verified before making any investment, development, or transactional
-            decisions. LandOS is not responsible for actions taken based on this report.
+            <strong className="text-foreground">Disclaimer:</strong>{" "}
+            {isLiveMode
+              ? "Report header data is sourced from live APIs (FEMA NFHL, Parcelum.io, US Census). Investment Memo sections are illustrative until AI report generation is enabled. All data should be independently verified before making any investment, development, or transactional decisions."
+              : "This report is generated from demo/simulated data for prototype demonstration purposes only. It does not constitute legal, financial, engineering, or real estate advice. All data should be independently verified before making any investment, development, or transactional decisions."}
           </p>
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function ReportPage() {
+  return (
+    <Suspense fallback={null}>
+      <ReportContent />
+    </Suspense>
   );
 }
