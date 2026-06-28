@@ -6,8 +6,8 @@
 
 import type { PropertyIntelligence } from "@/types/normalized";
 
-const DEFAULT_BASE_URL = "https://api.together.xyz/v1";
-const DEFAULT_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
+const DEFAULT_BASE_URL = "https://api.ollama.com/v1";
+const DEFAULT_MODEL = "llama3.2";
 
 export interface AiReportSection {
   id: string;
