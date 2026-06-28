@@ -140,15 +140,48 @@ function ZoningContent() {
             </CardHeader>
             <CardContent>
               {isLiveMode ? (
-                <div className="flex flex-col items-center justify-center py-8 gap-3">
-                  <AlertTriangle className="h-6 w-6 text-muted-foreground/40" />
-                  <div className="text-center">
-                    <p className="text-sm font-medium text-foreground mb-1">Zoning data not available</p>
-                    <p className="text-xs text-muted-foreground leading-relaxed max-w-xs">
-                      Zoning classification requires a municipal or county GIS API. Contact the local planning department for current zoning.
-                    </p>
+                intelligence?.zoning ? (
+                  <>
+                    <div className="rounded-lg bg-secondary/50 p-4 mb-4">
+                      <p className="text-[11px] text-muted-foreground uppercase tracking-wide mb-1">Current Zoning</p>
+                      <p className="text-lg font-bold text-foreground">{intelligence.zoning.zoningCode}</p>
+                      {intelligence.zoning.zoningName && (
+                        <p className="text-xs text-muted-foreground mt-1">{intelligence.zoning.zoningName}</p>
+                      )}
+                    </div>
+                    {[
+                      { label: "Jurisdiction", value: intelligence.zoning.jurisdiction ?? "—" },
+                      { label: "Zoning Type", value: intelligence.zoning.allowedUses?.[1] ?? "—" },
+                      { label: "Zoning Subtype", value: intelligence.zoning.allowedUses?.[0] ?? "—" },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="flex justify-between items-center py-2 border-b border-border/40 last:border-0">
+                        <span className="text-xs text-muted-foreground">{label}</span>
+                        <span className="text-xs font-medium text-right max-w-[55%]">{value}</span>
+                      </div>
+                    ))}
+                    <div className="mt-3">
+                      <a
+                        href={intelligence.zoning.sourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-[11px] text-primary hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        View zoning code details
+                      </a>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 gap-3">
+                    <AlertTriangle className="h-6 w-6 text-muted-foreground/40" />
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-foreground mb-1">Zoning data not available</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed max-w-xs">
+                        Zoning classification was not found for this address. Contact the local planning department for current zoning.
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )
               ) : (
                 <>
                   <div className="rounded-lg bg-secondary/50 p-4 mb-4">

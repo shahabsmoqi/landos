@@ -27,7 +27,7 @@ const STEP_DEFS = [
   { label: "Geocoding address", staticDetail: "US Census TIGER/MAF database" },
   { label: "Checking FEMA flood data", staticDetail: "NFHL MapServer — Layer 28" },
   { label: "Fetching Census demographics", staticDetail: "ACS 5-year tract estimates" },
-  { label: "Fetching parcel record", staticDetail: "Parcelum.io — TX CAD data" },
+  { label: "Fetching parcel & zoning data", staticDetail: "Parcelum.io (TX) · Regrid (national)" },
   { label: "Scanning for public GIS sources", staticDetail: "City/county ArcGIS endpoints" },
   { label: "Assembling intelligence report", staticDetail: "Normalizing and scoring data" },
   { label: "Opening dashboard", staticDetail: "Loading complete" },

@@ -5,6 +5,7 @@ import { fetchDemographicsForTract } from "@/lib/sources/censusData";
 import { discoverArcGISSources } from "@/lib/discovery/arcgisDiscovery";
 import { normalizeFEMA } from "@/lib/normalizers/floodNormalizer";
 import { fetchParcelumByAddress } from "@/lib/providers/parcelum";
+import { fetchRegridByAddress } from "@/lib/providers/regrid";
 import type { PropertyIntelligence } from "@/types/normalized";
 
 export async function GET(request: NextRequest) {
@@ -52,8 +53,8 @@ export async function GET(request: NextRequest) {
   const lat = geocode.latitude;
   const lng = geocode.longitude;
 
-  // Steps 2–5 in parallel: FEMA, Census demographics, Parcelum parcel, ArcGIS discovery
-  const [floodRaw, demographicsResult, parcelResult, discoveryResult] =
+  // Steps 2–5 in parallel: FEMA, Census demographics, Parcelum parcel, Regrid parcel+zoning, ArcGIS discovery
+  const [floodRaw, demographicsResult, parcelumResult, regridResult, discoveryResult] =
     await Promise.allSettled([
       fetchFEMAByLatLng(lat, lng),
       geocode.state && geocode.county && geocode.tract
@@ -65,6 +66,7 @@ export async function GET(request: NextRequest) {
           )
         : Promise.resolve(null),
       fetchParcelumByAddress(address.trim(), lat, lng),
+      fetchRegridByAddress(address.trim(), lat, lng),
       discoverArcGISSources(
         geocode.city ?? "",
         geocode.countyName ?? geocode.county ?? "",
@@ -82,16 +84,17 @@ export async function GET(request: NextRequest) {
     demographicsResult.status === "fulfilled" ? demographicsResult.value : null;
   if (!demographics) missingData.push("demographics");
 
-  const parcel =
-    parcelResult.status === "fulfilled" ? parcelResult.value : null;
+  // Prefer Parcelum for TX (direct CAD data), fall back to Regrid
+  const parcelumData = parcelumResult.status === "fulfilled" ? parcelumResult.value : null;
+  const regridData = regridResult.status === "fulfilled" ? regridResult.value : { parcel: null, zoning: null };
+  const parcel = parcelumData ?? regridData.parcel;
+  const zoning = regridData.zoning;
   if (!parcel) missingData.push("parcel");
+  if (!zoning) missingData.push("zoning");
 
   const discoveredSources =
     discoveryResult.status === "fulfilled" ? discoveryResult.value : [];
   if (!discoveredSources.length) missingData.push("gis-sources");
-
-  // Zoning requires ArcGIS query runner or a zoning provider (Session 5)
-  missingData.push("zoning");
 
   const intelligence: PropertyIntelligence = {
     address,
@@ -99,7 +102,7 @@ export async function GET(request: NextRequest) {
     flood,
     demographics,
     parcel,
-    zoning: null,
+    zoning,
     discoveredSources,
     permits: [],
     utilities: [],
@@ -108,7 +111,7 @@ export async function GET(request: NextRequest) {
       flood: flood ? "live" : "missing",
       demographics: demographics ? "live" : "missing",
       parcel: parcel ? "live" : "missing",
-      zoning: "missing",
+      zoning: zoning ? "live" : "missing",
     },
     missingData,
     fallbacksUsed,
