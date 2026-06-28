@@ -10,13 +10,18 @@ import {
   RefreshCw,
   AlertCircle,
   ChevronRight,
+  Search,
+  Zap,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { dataSources, DataSource, DataSourceStatus } from "@/data/dataSources";
+import { demoDiscoveredSources } from "@/data/discoveredSources.demo";
+import { DiscoveredSourcesTable } from "@/components/intelligence/DiscoveredSourcesTable";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import type { DiscoveredSource } from "@/types/sources";
 
 const statusConfig: Record<DataSourceStatus, { icon: React.ElementType; color: string; bg: string; border: string }> = {
   Connected: { icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/30" },
@@ -104,6 +109,8 @@ function DataSourceCard({ source }: { source: DataSource }) {
 
 export default function DataSourcesPage() {
   const [activeCategory, setActiveCategory] = useState("All");
+  const [discoveredSources, setDiscoveredSources] = useState<DiscoveredSource[]>(demoDiscoveredSources);
+  const [discovering, setDiscovering] = useState(false);
 
   const filtered = activeCategory === "All"
     ? dataSources
@@ -111,6 +118,46 @@ export default function DataSourcesPage() {
 
   const connectedCount = dataSources.filter((s) => s.status === "Connected").length;
   const totalCount = dataSources.length;
+
+  const handleDiscover = async () => {
+    setDiscovering(true);
+    toast.info("Scanning for public GIS sources…", {
+      description: "Probing city/county ArcGIS endpoints for Burleson TX / Johnson County",
+    });
+
+    try {
+      const params = new URLSearchParams({
+        city: "Burleson",
+        county: "Johnson",
+        state: "TX",
+      });
+      const res = await fetch(`/api/source-discovery?${params}`);
+      const data = await res.json() as { sources: DiscoveredSource[]; total: number };
+
+      if (data.sources?.length) {
+        setDiscoveredSources((prev) => {
+          const map = new Map(prev.map((s) => [s.id, s]));
+          for (const src of data.sources) {
+            map.set(src.id, src);
+          }
+          return [...map.values()].sort((a, b) => b.confidence - a.confidence);
+        });
+        toast.success(`Found ${data.total} public GIS source${data.total !== 1 ? "s" : ""}`, {
+          description: "Discovered sources added to the registry below.",
+        });
+      } else {
+        toast.info("No new sources discovered", {
+          description: "No public ArcGIS endpoints responded for this jurisdiction.",
+        });
+      }
+    } catch {
+      toast.error("Discovery failed", {
+        description: "Could not reach source-discovery API.",
+      });
+    } finally {
+      setDiscovering(false);
+    }
+  };
 
   return (
     <DashboardLayout title="Data Sources" subtitle="Integration & data pipeline status">
@@ -229,6 +276,80 @@ export default function DataSourcesPage() {
             </p>
           </CardContent>
         </Card>
+
+        {/* Auto-Discovery Engine */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <Zap className="h-4 w-4 text-primary" />
+                <h2 className="text-base font-semibold">Public GIS Auto-Discovery</h2>
+              </div>
+              <p className="text-xs text-muted-foreground max-w-xl">
+                LandOS probes public ArcGIS REST endpoints for the active city/county and scores
+                each layer by type (parcel, zoning, permits, utilities, etc.). No credentials
+                required for public services.
+              </p>
+            </div>
+            <Button
+              onClick={handleDiscover}
+              disabled={discovering}
+              size="sm"
+              className="gap-2 shrink-0"
+            >
+              {discovering ? (
+                <>
+                  <div className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
+                  Scanning…
+                </>
+              ) : (
+                <>
+                  <Search className="h-3.5 w-3.5" />
+                  Discover Sources
+                </>
+              )}
+            </Button>
+          </div>
+
+          {/* Discovery stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              {
+                label: "Connected",
+                value: discoveredSources.filter((s) => s.status === "connected").length,
+                color: "text-green-400",
+                bg: "border-green-500/20 bg-green-500/5",
+              },
+              {
+                label: "Discovered",
+                value: discoveredSources.filter((s) => s.status === "discovered").length,
+                color: "text-amber-400",
+                bg: "border-amber-500/20 bg-amber-500/5",
+              },
+              {
+                label: "Needs Key",
+                value: discoveredSources.filter((s) => s.status === "needsKey").length,
+                color: "text-muted-foreground",
+                bg: "border-border bg-secondary/30",
+              },
+              {
+                label: "Failed",
+                value: discoveredSources.filter((s) => s.status === "failed").length,
+                color: "text-red-400",
+                bg: "border-red-500/20 bg-red-500/5",
+              },
+            ].map(({ label, value, color, bg }) => (
+              <div key={label} className={`rounded-lg border p-3 ${bg}`}>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">
+                  {label}
+                </p>
+                <p className={`text-xl font-bold ${color}`}>{value}</p>
+              </div>
+            ))}
+          </div>
+
+          <DiscoveredSourcesTable sources={discoveredSources} />
+        </div>
       </div>
     </DashboardLayout>
   );

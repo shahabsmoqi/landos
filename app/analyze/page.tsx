@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, Layers, ArrowLeft, MapPin, CheckCircle2 } from "lucide-react";
+import { Search, Layers, ArrowLeft, MapPin, CheckCircle2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,14 +14,38 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { GeocodingResult } from "@/types/geocoding";
+import type { NormalizedFlood, NormalizedDemographics, NormalizedProperty, PropertyIntelligence } from "@/types/normalized";
+import type { DiscoveredSource } from "@/types/sources";
 
-const loadingSteps = [
-  "Finding parcel...",
-  "Checking zoning...",
-  "Reviewing floodplain...",
-  "Estimating development potential...",
-  "Building report...",
+interface StepState {
+  status: "pending" | "running" | "done" | "failed";
+  detail?: string;
+}
+
+const STEP_DEFS = [
+  { label: "Geocoding address", staticDetail: "US Census TIGER/MAF database" },
+  { label: "Checking FEMA flood data", staticDetail: "NFHL MapServer — Layer 28" },
+  { label: "Fetching Census demographics", staticDetail: "ACS 5-year tract estimates" },
+  { label: "Fetching parcel record", staticDetail: "Parcelum.io — TX CAD data" },
+  { label: "Scanning for public GIS sources", staticDetail: "City/county ArcGIS endpoints" },
+  { label: "Assembling intelligence report", staticDetail: "Normalizing and scoring data" },
+  { label: "Opening dashboard", staticDetail: "Loading complete" },
 ];
+
+async function fetchWithTimeout<T>(url: string, ms: number): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as T;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
 
 export default function AnalyzePage() {
   const router = useRouter();
@@ -29,32 +53,223 @@ export default function AnalyzePage() {
   const [propertyType, setPropertyType] = useState("");
   const [intendedUse, setIntendedUse] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
-  const [completedSteps, setCompletedSteps] = useState<number[]>([]);
+  const [currentStep, setCurrentStep] = useState(-1);
+  const [steps, setSteps] = useState<StepState[]>(
+    STEP_DEFS.map(() => ({ status: "pending" as const }))
+  );
 
-  const handleAnalyze = () => {
-    if (!address.trim()) return;
-    setIsLoading(true);
-    setLoadingStep(0);
-    setCompletedSteps([]);
+  const setStep = (
+    idx: number,
+    status: StepState["status"],
+    detail?: string
+  ) => {
+    setSteps((prev) => {
+      const next = [...prev];
+      next[idx] = { status, detail: detail ?? next[idx].detail };
+      return next;
+    });
   };
 
-  useEffect(() => {
-    if (!isLoading) return;
+  const handleAnalyze = async () => {
+    if (!address.trim()) return;
 
-    if (loadingStep < loadingSteps.length) {
-      const timer = setTimeout(() => {
-        setCompletedSteps((prev) => [...prev, loadingStep]);
-        setLoadingStep((prev) => prev + 1);
-      }, 380);
-      return () => clearTimeout(timer);
-    } else {
-      const timer = setTimeout(() => {
-        router.push("/dashboard/demo-property");
-      }, 300);
-      return () => clearTimeout(timer);
+    setIsLoading(true);
+    setCurrentStep(0);
+    setSteps(STEP_DEFS.map(() => ({ status: "pending" })));
+
+    try {
+      // ── Step 0: Geocode ──
+      setStep(0, "running");
+      let geocode: GeocodingResult | null = null;
+      try {
+        geocode = await fetchWithTimeout<GeocodingResult>(
+          `/api/geocode?address=${encodeURIComponent(address.trim())}`,
+          12000
+        );
+        if (geocode.success && geocode.matchedAddress) {
+          setStep(0, "done", `→ ${geocode.matchedAddress}`);
+        } else {
+          setStep(0, "failed", geocode.error ?? "No match found");
+        }
+      } catch {
+        setStep(0, "failed", "Geocoder unavailable — using demo location");
+      }
+
+      const lat = geocode?.latitude;
+      const lng = geocode?.longitude;
+
+      // ── Step 1: FEMA flood ──
+      setCurrentStep(1);
+      setStep(1, "running");
+      let flood: NormalizedFlood | null = null;
+      try {
+        if (lat && lng) {
+          const raw = await fetchWithTimeout<NormalizedFlood & { error?: string }>(
+            `/api/flood-zone?lat=${lat}&lng=${lng}`,
+            12000
+          );
+          if (!raw.error) {
+            flood = raw;
+            setStep(1, "done", `Zone ${raw.zoneCode ?? (raw as unknown as { zone?: string }).zone ?? "X"} — ${raw.riskLabel ?? "Minimal Flood Hazard"}`);
+          } else {
+            setStep(1, "failed", raw.error);
+          }
+        } else {
+          setStep(1, "failed", "Skipped — no coordinates");
+        }
+      } catch {
+        setStep(1, "failed", "FEMA service unavailable");
+      }
+
+      // ── Step 2: Demographics ──
+      setCurrentStep(2);
+      setStep(2, "running");
+      let demographics: NormalizedDemographics | null = null;
+      try {
+        if (geocode?.state && geocode?.county && geocode?.tract) {
+          demographics = await fetchWithTimeout<NormalizedDemographics>(
+            `/api/demographics?state=${geocode.state}&county=${geocode.county}&tract=${geocode.tract}`,
+            12000
+          );
+          const pop = demographics?.population;
+          setStep(
+            2,
+            "done",
+            `Tract ${geocode.tract}${pop ? ` — pop. ${pop.toLocaleString()}` : ""}`
+          );
+        } else {
+          setStep(2, "failed", "Skipped — no Census tract from geocoder");
+        }
+      } catch {
+        setStep(2, "failed", "Census API unavailable");
+      }
+
+      // ── Step 3: Parcel data ──
+      setCurrentStep(3);
+      setStep(3, "running");
+      let parcel: NormalizedProperty | null = null;
+      try {
+        if (lat && lng) {
+          parcel = await fetchWithTimeout<NormalizedProperty>(
+            `/api/parcel?address=${encodeURIComponent(address.trim())}&lat=${lat}&lng=${lng}`,
+            10000
+          );
+          if (parcel) {
+            const owner = parcel.ownerName ?? "Owner on file";
+            const acres = parcel.acreage != null ? ` — ${parcel.acreage.toFixed(2)} ac` : "";
+            setStep(3, "done", `${owner}${acres}`);
+          } else {
+            setStep(3, "failed", "Not in covered counties");
+          }
+        } else {
+          setStep(3, "failed", "Skipped — no coordinates");
+        }
+      } catch {
+        setStep(3, "failed", "Parcel service unavailable");
+      }
+
+      // ── Step 4: Source discovery ──
+      setCurrentStep(4);
+      setStep(4, "running");
+      let discoveredSources: DiscoveredSource[] = [];
+      try {
+        if (geocode?.city || geocode?.countyName) {
+          const params = new URLSearchParams({
+            city: geocode.city ?? "",
+            county: geocode.countyName ?? geocode.county ?? "",
+            state: geocode.stateAbbr ?? geocode.state ?? "",
+          });
+          const result = await fetchWithTimeout<{ sources: DiscoveredSource[]; total: number }>(
+            `/api/source-discovery?${params}`,
+            15000
+          );
+          discoveredSources = result.sources ?? [];
+          const n = discoveredSources.length;
+          setStep(
+            4,
+            n > 0 ? "done" : "failed",
+            n > 0
+              ? `${n} public GIS source${n !== 1 ? "s" : ""} discovered`
+              : "No public ArcGIS endpoints found"
+          );
+        } else {
+          setStep(4, "failed", "Skipped — city/county unknown");
+        }
+      } catch {
+        setStep(4, "failed", "Discovery timed out — no sources found");
+      }
+
+      // ── Step 5: Assemble ──
+      setCurrentStep(5);
+      setStep(5, "running");
+
+      const floodNormalized: NormalizedFlood | null = flood
+        ? {
+            zoneCode: (flood as unknown as { zone?: string }).zone ?? flood.zoneCode ?? "X",
+            zoneSubtype: (flood as unknown as { subtype?: string }).subtype ?? flood.zoneSubtype ?? "",
+            sfha: (flood as unknown as { isSpecialHazard?: boolean }).isSpecialHazard ?? flood.sfha ?? false,
+            firmPanel: flood.firmPanel ?? "N/A",
+            riskLevel: flood.riskLevel ?? "low",
+            riskLabel: flood.riskLabel ?? "Minimal Flood Hazard",
+            description: flood.description ?? "",
+            sourceUrl:
+              "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28",
+            sourceConfidence: "live",
+            lastChecked: new Date().toISOString(),
+            lat,
+            lng,
+          }
+        : null;
+
+      const intelligence: PropertyIntelligence = {
+        address: address.trim(),
+        geocode,
+        flood: floodNormalized,
+        demographics,
+        parcel,
+        zoning: null,
+        discoveredSources,
+        permits: [],
+        utilities: [],
+        confidenceSummary: {
+          geocoder: geocode?.success ? "live" : "missing",
+          flood: floodNormalized ? "live" : "missing",
+          demographics: demographics ? "live" : "missing",
+          parcel: parcel ? "live" : "missing",
+          zoning: "missing",
+        },
+        missingData: [
+          ...(!geocode?.success ? ["geocode"] : []),
+          ...(!floodNormalized ? ["flood"] : []),
+          ...(!demographics ? ["demographics"] : []),
+          ...(!parcel ? ["parcel"] : []),
+          "zoning",
+        ],
+        fallbacksUsed: [],
+        fetchedAt: new Date().toISOString(),
+        mode: "live",
+      };
+
+      try {
+        localStorage.setItem("landos_property_intelligence", JSON.stringify(intelligence));
+      } catch {
+        // localStorage unavailable
+      }
+
+      setStep(5, "done", "Intelligence object assembled");
+
+      // ── Step 6: Navigate ──
+      setCurrentStep(6);
+      setStep(6, "running");
+      await new Promise((r) => setTimeout(r, 400));
+      setStep(6, "done");
+
+      router.push("/dashboard/demo-property?mode=live");
+    } catch {
+      // Fatal fallback — navigate to demo mode
+      router.push("/dashboard/demo-property");
     }
-  }, [isLoading, loadingStep, router]);
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -67,7 +282,10 @@ export default function AnalyzePage() {
             </div>
             <span className="text-sm font-bold tracking-tight">LandOS</span>
           </Link>
-          <Link href="/" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
             <ArrowLeft className="h-3.5 w-3.5" />
             Back
           </Link>
@@ -84,14 +302,18 @@ export default function AnalyzePage() {
               </div>
               <h1 className="text-2xl font-bold mb-2">Analyze a Property</h1>
               <p className="text-sm text-muted-foreground">
-                Enter a property address to generate a full development intelligence report.
+                Enter a property address to run live geocoding, FEMA flood
+                lookup, Census demographics, and public GIS discovery.
               </p>
             </div>
 
             {/* Form */}
             <div className="rounded-xl border border-border bg-card p-6 space-y-5">
               <div>
-                <Label htmlFor="address" className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 block">
+                <Label
+                  htmlFor="address"
+                  className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 block"
+                >
                   Property Address
                 </Label>
                 <div className="relative">
@@ -106,7 +328,8 @@ export default function AnalyzePage() {
                   />
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1.5">
-                  Try any address — the demo will load 2600 Dave Angel Rd, Burleson, TX
+                  Any US address — geocoding, FEMA flood, and Census data run
+                  live
                 </p>
               </div>
 
@@ -115,16 +338,25 @@ export default function AnalyzePage() {
                   <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 block">
                     Property Type
                   </Label>
-                  <Select value={propertyType} onValueChange={(v) => setPropertyType(v ?? "")}>
+                  <Select
+                    value={propertyType}
+                    onValueChange={(v) => setPropertyType(v ?? "")}
+                  >
                     <SelectTrigger className="bg-secondary border-border text-sm">
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="raw-land">Raw Land</SelectItem>
-                      <SelectItem value="single-family">Single-Family Property</SelectItem>
-                      <SelectItem value="commercial-lot">Commercial Lot</SelectItem>
+                      <SelectItem value="single-family">
+                        Single-Family Property
+                      </SelectItem>
+                      <SelectItem value="commercial-lot">
+                        Commercial Lot
+                      </SelectItem>
                       <SelectItem value="industrial">Industrial Land</SelectItem>
-                      <SelectItem value="multifamily">Multifamily Site</SelectItem>
+                      <SelectItem value="multifamily">
+                        Multifamily Site
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -133,7 +365,10 @@ export default function AnalyzePage() {
                   <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 block">
                     Intended Use
                   </Label>
-                  <Select value={intendedUse} onValueChange={(v) => setIntendedUse(v ?? "")}>
+                  <Select
+                    value={intendedUse}
+                    onValueChange={(v) => setIntendedUse(v ?? "")}
+                  >
                     <SelectTrigger className="bg-secondary border-border text-sm">
                       <SelectValue placeholder="Select use" />
                     </SelectTrigger>
@@ -143,7 +378,9 @@ export default function AnalyzePage() {
                       <SelectItem value="multifamily">Multifamily</SelectItem>
                       <SelectItem value="commercial">Commercial</SelectItem>
                       <SelectItem value="mixed-use">Mixed Use</SelectItem>
-                      <SelectItem value="land-banking">Hold / Land Banking</SelectItem>
+                      <SelectItem value="land-banking">
+                        Hold / Land Banking
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -174,7 +411,7 @@ export default function AnalyzePage() {
             </div>
           </div>
         ) : (
-          /* Loading state */
+          /* Loading state — real API progress */
           <div className="w-full max-w-md text-center">
             <div className="mb-8">
               <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 mb-4">
@@ -184,40 +421,50 @@ export default function AnalyzePage() {
               <p className="text-sm text-muted-foreground">{address}</p>
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-6 text-left space-y-4">
-              {loadingSteps.map((step, index) => {
-                const isDone = completedSteps.includes(index);
-                const isActive = loadingStep === index;
-                const isPending = index > loadingStep;
+            <div className="rounded-xl border border-border bg-card p-6 text-left space-y-3">
+              {STEP_DEFS.map((def, index) => {
+                const state = steps[index];
+                const isActive = currentStep === index && state.status === "running";
                 return (
-                  <div key={step} className="flex items-center gap-3">
-                    <div className="shrink-0">
-                      {isDone ? (
-                        <CheckCircle2 className="h-4.5 w-4.5 text-green-400" />
+                  <div key={def.label} className="flex items-start gap-3">
+                    <div className="shrink-0 mt-0.5">
+                      {state.status === "done" ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-400" />
+                      ) : state.status === "failed" ? (
+                        <XCircle className="h-4 w-4 text-amber-400" />
                       ) : isActive ? (
                         <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
                       ) : (
                         <div className="h-4 w-4 rounded-full border-2 border-border" />
                       )}
                     </div>
-                    <span
-                      className={`text-sm transition-colors ${
-                        isDone
-                          ? "text-green-400"
-                          : isActive
-                          ? "text-foreground font-medium"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {step}
-                    </span>
+                    <div>
+                      <p
+                        className={`text-sm leading-none transition-colors ${
+                          state.status === "done"
+                            ? "text-green-400"
+                            : state.status === "failed"
+                            ? "text-amber-400"
+                            : isActive
+                            ? "text-foreground font-medium"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {def.label}
+                      </p>
+                      {(isActive || state.status === "done" || state.status === "failed") && (
+                        <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+                          {state.detail ?? def.staticDetail}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 );
               })}
             </div>
 
             <p className="text-xs text-muted-foreground mt-4">
-              Loading demo data for 2600 Dave Angel Rd, Burleson, TX...
+              Running live queries — this takes 5–15 seconds
             </p>
           </div>
         )}

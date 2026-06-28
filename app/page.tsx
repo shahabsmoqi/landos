@@ -147,10 +147,10 @@ export default function LandingPage() {
               asChild
               variant="outline"
               size="lg"
-              className="h-12 px-8 text-sm font-semibold gap-2 border-border bg-transparent hover:bg-secondary"
+              className="h-12 px-8 text-sm font-semibold gap-2 border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary"
             >
               <Link href="/dashboard/demo-property">
-                View Demo Report
+                Launch Interactive Demo
                 <ChevronRight className="h-4 w-4" />
               </Link>
             </Button>
@@ -352,10 +352,11 @@ export default function LandingPage() {
               asChild
               variant="outline"
               size="lg"
-              className="h-12 px-8 text-sm font-semibold border-border bg-transparent hover:bg-secondary"
+              className="h-12 px-8 text-sm font-semibold gap-2 border-primary/40 bg-primary/5 hover:bg-primary/10 text-primary"
             >
               <Link href="/dashboard/demo-property">
-                View Demo Report
+                Launch Interactive Demo
+                <ChevronRight className="h-4 w-4" />
               </Link>
             </Button>
           </div>

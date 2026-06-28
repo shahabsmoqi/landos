@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Search,
   LayoutDashboard,
-  Map,
+  MapPin,
   TrendingUp,
   GitBranch,
   DollarSign,
@@ -14,16 +14,22 @@ import {
   Database,
   Layers,
   ChevronRight,
+  Map,
+  Wrench,
+  Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/analyze", icon: Search, label: "Search" },
-  { href: "/dashboard/demo-property", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/dashboard/demo-property/zoning", icon: Map, label: "Zoning" },
+  { href: "/dashboard/demo-property", icon: LayoutDashboard, label: "Dashboard", exact: true },
+  { href: "/dashboard/demo-property/map", icon: Map, label: "Map Intelligence" },
+  { href: "/dashboard/demo-property/zoning", icon: MapPin, label: "Zoning" },
   { href: "/dashboard/demo-property/development", icon: TrendingUp, label: "Development" },
+  { href: "/dashboard/demo-property/buildability", icon: Wrench, label: "Buildability Wizard" },
   { href: "/dashboard/demo-property/workflow", icon: GitBranch, label: "Workflow" },
-  { href: "/dashboard/demo-property/financials", icon: DollarSign, label: "Financials" },
+  { href: "/dashboard/demo-property/financials", icon: DollarSign, label: "Financial Model" },
+  { href: "/dashboard/demo-property/submission-packets", icon: Send, label: "Submission Packets" },
   { href: "/dashboard/demo-property/report", icon: FileText, label: "AI Report" },
   { href: "/saved", icon: Bookmark, label: "Saved Deals" },
   { href: "/settings/data-sources", icon: Database, label: "Data Sources" },
@@ -46,35 +52,34 @@ export function AppSidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3">
-        <div className="mb-3 px-2">
+      <nav className="flex-1 overflow-y-auto py-3 px-3">
+        <div className="mb-2 px-2">
           <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Navigation</p>
         </div>
         <ul className="space-y-0.5">
-          {navItems.map(({ href, icon: Icon, label }) => {
-            const active =
-              href === "/dashboard/demo-property"
-                ? pathname === href
-                : pathname.startsWith(href);
+          {navItems.map(({ href, icon: Icon, label, exact }) => {
+            const active = exact
+              ? pathname === href
+              : pathname === href || (pathname.startsWith(href) && href !== "/analyze");
             return (
               <li key={href}>
                 <Link
                   href={href}
                   className={cn(
-                    "group flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm transition-all",
+                    "group flex items-center justify-between gap-3 rounded-md px-3 py-1.5 text-sm transition-all",
                     active
                       ? "bg-primary/15 text-primary font-medium"
                       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
                   )}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2.5">
                     <Icon
                       className={cn(
-                        "h-4 w-4 shrink-0 transition-colors",
+                        "h-3.5 w-3.5 shrink-0 transition-colors",
                         active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
                       )}
                     />
-                    {label}
+                    <span className="text-xs">{label}</span>
                   </div>
                   {active && <ChevronRight className="h-3 w-3 text-primary" />}
                 </Link>
@@ -86,10 +91,10 @@ export function AppSidebar() {
 
       {/* Demo badge */}
       <div className="p-3 border-t border-sidebar-border">
-        <div className="rounded-md bg-primary/10 border border-primary/20 p-3">
+        <div className="rounded-md bg-primary/10 border border-primary/20 p-2.5">
           <p className="text-xs font-medium text-primary mb-0.5">Demo Mode</p>
-          <p className="text-[11px] text-muted-foreground leading-tight">
-            Showing demo property: 2600 Dave Angel Rd
+          <p className="text-[10px] text-muted-foreground leading-tight">
+            2600 Dave Angel Rd, Burleson TX
           </p>
         </div>
       </div>
