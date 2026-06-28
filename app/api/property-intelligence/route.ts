@@ -6,6 +6,8 @@ import { discoverArcGISSources } from "@/lib/discovery/arcgisDiscovery";
 import { normalizeFEMA } from "@/lib/normalizers/floodNormalizer";
 import { fetchParcelumByAddress } from "@/lib/providers/parcelum";
 import { fetchRegridByAddress } from "@/lib/providers/regrid";
+import { fetchZillowListings } from "@/lib/providers/hasdata";
+import { fetchMLSListings } from "@/lib/providers/bridge";
 import type { PropertyIntelligence } from "@/types/normalized";
 
 export async function GET(request: NextRequest) {
@@ -34,6 +36,7 @@ export async function GET(request: NextRequest) {
         discoveredSources: [],
         permits: [],
         utilities: [],
+        listings: [],
         confidenceSummary: {
           geocoder: "missing",
           flood: "missing",
@@ -53,26 +56,35 @@ export async function GET(request: NextRequest) {
   const lat = geocode.latitude;
   const lng = geocode.longitude;
 
-  // Steps 2–5 in parallel: FEMA, Census demographics, Parcelum parcel, Regrid parcel+zoning, ArcGIS discovery
-  const [floodRaw, demographicsResult, parcelumResult, regridResult, discoveryResult] =
-    await Promise.allSettled([
-      fetchFEMAByLatLng(lat, lng),
-      geocode.state && geocode.county && geocode.tract
-        ? fetchDemographicsForTract(
-            geocode.state,
-            geocode.county,
-            geocode.tract,
-            process.env.CENSUS_API_KEY
-          )
-        : Promise.resolve(null),
-      fetchParcelumByAddress(address.trim(), lat, lng),
-      fetchRegridByAddress(address.trim(), lat, lng),
-      discoverArcGISSources(
-        geocode.city ?? "",
-        geocode.countyName ?? geocode.county ?? "",
-        geocode.stateAbbr ?? geocode.state ?? ""
-      ),
-    ]);
+  // Steps 2–7 in parallel: FEMA, Census, Parcelum, Regrid, ArcGIS, Zillow listings, MLS listings
+  const [
+    floodRaw,
+    demographicsResult,
+    parcelumResult,
+    regridResult,
+    discoveryResult,
+    zillowResult,
+    mlsResult,
+  ] = await Promise.allSettled([
+    fetchFEMAByLatLng(lat, lng),
+    geocode.state && geocode.county && geocode.tract
+      ? fetchDemographicsForTract(
+          geocode.state,
+          geocode.county,
+          geocode.tract,
+          process.env.CENSUS_API_KEY
+        )
+      : Promise.resolve(null),
+    fetchParcelumByAddress(address.trim(), lat, lng),
+    fetchRegridByAddress(address.trim(), lat, lng),
+    discoverArcGISSources(
+      geocode.city ?? "",
+      geocode.countyName ?? geocode.county ?? "",
+      geocode.stateAbbr ?? geocode.state ?? ""
+    ),
+    fetchZillowListings(geocode.city ?? "", geocode.stateAbbr ?? geocode.state ?? ""),
+    fetchMLSListings(lat, lng),
+  ]);
 
   const flood =
     floodRaw.status === "fulfilled"
@@ -96,6 +108,10 @@ export async function GET(request: NextRequest) {
     discoveryResult.status === "fulfilled" ? discoveryResult.value : [];
   if (!discoveredSources.length) missingData.push("gis-sources");
 
+  const zillowListings = zillowResult.status === "fulfilled" ? zillowResult.value : [];
+  const mlsListings = mlsResult.status === "fulfilled" ? mlsResult.value : [];
+  const listings = [...zillowListings, ...mlsListings];
+
   const intelligence: PropertyIntelligence = {
     address,
     geocode,
@@ -106,6 +122,7 @@ export async function GET(request: NextRequest) {
     discoveredSources,
     permits: [],
     utilities: [],
+    listings,
     confidenceSummary: {
       geocoder: geocode.success ? "live" : "missing",
       flood: flood ? "live" : "missing",

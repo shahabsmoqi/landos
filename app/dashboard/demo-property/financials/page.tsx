@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import type { PropertyIntelligence } from "@/types/normalized";
+import type { NormalizedListing, PropertyIntelligence } from "@/types/normalized";
 import {
   LineChart,
   Line,
@@ -13,7 +13,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
-import { DollarSign, AlertTriangle, TrendingUp, TrendingDown } from "lucide-react";
+import { DollarSign, AlertTriangle, Building2, Home, ExternalLink } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -350,8 +350,120 @@ function FinancialsContent() {
             </Card>
           </div>
         </div>
+        {/* Market Comparables — live mode only */}
+        {isLiveMode && intelligence?.listings?.length ? (
+          <MarketComps listings={intelligence.listings} />
+        ) : isLiveMode ? (
+          <div className="rounded-lg border border-border bg-card p-6 text-center">
+            <Building2 className="h-6 w-6 text-muted-foreground mx-auto mb-2" />
+            <p className="text-sm text-muted-foreground">
+              No nearby listings found for this area
+            </p>
+          </div>
+        ) : null}
       </div>
     </DashboardLayout>
+  );
+}
+
+function fmtPrice(n?: number) {
+  if (!n) return "—";
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  return `$${Math.round(n / 1000)}K`;
+}
+
+function MarketComps({ listings }: { listings: NormalizedListing[] }) {
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-primary" />
+          <CardTitle className="text-sm font-semibold">
+            Market Comparables
+          </CardTitle>
+          <span className="ml-auto text-[11px] text-muted-foreground">
+            {listings.length} listing{listings.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Nearby properties from Zillow and MLS
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {listings.map((l) => (
+            <div
+              key={l.listingId}
+              className="rounded-lg border border-border bg-secondary/30 p-3 space-y-2"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs font-medium text-foreground leading-tight line-clamp-2">
+                  {l.address}
+                </p>
+                {l.listingUrl && (
+                  <a
+                    href={l.listingUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-base font-bold text-foreground">
+                  {fmtPrice(l.listPrice)}
+                </span>
+                {l.pricePerSqft && (
+                  <span className="text-[11px] text-muted-foreground">
+                    ${l.pricePerSqft}/sqft
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                {l.beds != null && (
+                  <span className="flex items-center gap-1">
+                    <Home className="h-3 w-3" />
+                    {l.beds} bd
+                  </span>
+                )}
+                {l.baths != null && <span>{l.baths} ba</span>}
+                {l.sqft != null && <span>{l.sqft.toLocaleString()} sqft</span>}
+                {l.acres != null && <span>{l.acres} ac</span>}
+              </div>
+              <div className="flex items-center justify-between">
+                <span
+                  className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                    l.listingStatus?.includes("SALE") || l.listingStatus === "Active"
+                      ? "bg-green-500/15 text-green-400"
+                      : l.listingStatus?.includes("SOLD") || l.listingStatus === "Closed"
+                      ? "bg-blue-500/15 text-blue-400"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {l.listingStatus ?? "Unknown"}
+                </span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                    l.source === "zillow"
+                      ? "border-blue-500/30 text-blue-400"
+                      : "border-purple-500/30 text-purple-400"
+                  }`}
+                >
+                  {l.source === "zillow" ? "Zillow" : "MLS"}
+                </span>
+              </div>
+              {l.daysOnMarket != null && (
+                <p className="text-[10px] text-muted-foreground">
+                  {l.daysOnMarket} days on market
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -67,6 +67,29 @@ export interface NormalizedZoning {
   sourceConfidence: ConfidenceLevel;
 }
 
+export interface NormalizedListing {
+  listingId: string;
+  address: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  lat?: number;
+  lng?: number;
+  listPrice?: number;
+  pricePerSqft?: number;
+  beds?: number;
+  baths?: number;
+  sqft?: number;
+  acres?: number;
+  propertyType?: string;
+  listingStatus?: string;
+  listedDate?: string;
+  daysOnMarket?: number;
+  photoUrl?: string;
+  listingUrl?: string;
+  source: "zillow" | "bridge";
+}
+
 export interface NormalizedPermit {
   permitNumber: string;
   permitType: string;
@@ -97,6 +120,7 @@ export interface PropertyIntelligence {
   discoveredSources: DiscoveredSource[];
   permits: NormalizedPermit[];
   utilities: NormalizedUtility[];
+  listings: NormalizedListing[];
   confidenceSummary: {
     geocoder: ConfidenceLevel;
     flood: ConfidenceLevel;

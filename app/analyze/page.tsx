@@ -231,6 +231,7 @@ export default function AnalyzePage() {
         discoveredSources,
         permits: [],
         utilities: [],
+        listings: [],
         confidenceSummary: {
           geocoder: geocode?.success ? "live" : "missing",
           flood: floodNormalized ? "live" : "missing",

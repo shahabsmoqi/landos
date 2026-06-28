@@ -12,12 +12,14 @@ import {
   ChevronDown,
   ChevronUp,
   Printer,
+  Loader2,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { ScoreCard } from "@/components/ScoreCard";
 import { RiskBadge } from "@/components/RiskBadge";
 import { reportSections } from "@/data/reportSections";
 import { demoProperty } from "@/data/demoProperty";
+import type { AiReportSection } from "@/lib/ai/generateReport";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -64,6 +66,9 @@ function ReportContent() {
   const searchParams = useSearchParams();
   const isLiveMode = searchParams.get("mode") === "live";
   const [intelligence, setIntelligence] = useState<PropertyIntelligence | null>(null);
+  const [aiSections, setAiSections] = useState<AiReportSection[] | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const p = demoProperty;
 
   useEffect(() => {
@@ -97,6 +102,30 @@ function ReportContent() {
   const floodLabel = isLiveMode
     ? (intelligence?.flood ? `${intelligence.flood.riskLabel} (Zone ${intelligence.flood.zoneCode})` : "—")
     : "Low to Medium";
+
+  const handleGenerateReport = async () => {
+    if (!intelligence) return;
+    setGenerating(true);
+    setAiError(null);
+    try {
+      const res = await fetch("/api/generate-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(intelligence),
+      });
+      const data = await res.json() as { sections?: AiReportSection[]; error?: string };
+      if (!res.ok || data.error) {
+        setAiError(data.error ?? `Request failed (${res.status})`);
+      } else {
+        setAiSections(data.sections ?? []);
+        toast.success("AI report generated", { description: "Investment memo ready below." });
+      }
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : "Network error");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const handleShare = () => {
     toast.success("Share link copied", {
@@ -156,6 +185,21 @@ function ReportContent() {
               Start Workflow
             </Link>
           </Button>
+          {isLiveMode && (
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 text-xs bg-primary hover:bg-primary/90"
+              onClick={handleGenerateReport}
+              disabled={!intelligence || generating}
+            >
+              {generating ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {generating ? "Generating…" : "Generate AI Report"}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -280,20 +324,45 @@ function ReportContent() {
               <CardTitle className="text-sm font-semibold">Full Investment Memo</CardTitle>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {isLiveMode
-                ? "AI-generated analysis requires an Anthropic API key. The sections below are illustrative demo content."
+              {isLiveMode && aiSections
+                ? "AI-generated investment analysis based on live property data."
+                : isLiveMode
+                ? 'Click "Generate AI Report" above to create a property-specific investment memo.'
                 : "AI-generated analyst narrative. Click any section to expand."}
             </p>
           </CardHeader>
           <CardContent className="pt-2">
-            {reportSections.map((section, i) => (
-              <ReportSectionBlock
-                key={section.id}
-                title={`${i + 1}. ${section.title}`}
-                content={section.content}
-                defaultOpen={i === 0}
-              />
-            ))}
+            {aiError && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/8 p-3 mb-4">
+                <p className="text-xs text-red-400">
+                  <strong>Generation failed:</strong> {aiError}
+                </p>
+              </div>
+            )}
+            {isLiveMode && aiSections ? (
+              aiSections.map((section, i) => (
+                <ReportSectionBlock
+                  key={section.id}
+                  title={`${i + 1}. ${section.title}`}
+                  content={section.content}
+                  defaultOpen={i === 0}
+                />
+              ))
+            ) : isLiveMode && generating ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span className="text-sm">Generating investment memo…</span>
+              </div>
+            ) : (
+              reportSections.map((section, i) => (
+                <ReportSectionBlock
+                  key={section.id}
+                  title={`${i + 1}. ${section.title}`}
+                  content={section.content}
+                  defaultOpen={i === 0}
+                />
+              ))
+            )}
           </CardContent>
         </Card>
 
